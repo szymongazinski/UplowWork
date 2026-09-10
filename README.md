@@ -2,11 +2,11 @@
 
 Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube Shorts**. Lokalny panel jako rozszerzenie Chrome lub Edge, bez abonamentu i bez dodatkowego serwera.
 
-**Wersja eksperymentalna 0.1.1.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
+**Wersja eksperymentalna 0.1.2.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
 
 ## Instalacja bez programowania
 
-1. Pobierz **UplowWork-v0.1.1.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
+1. Pobierz **UplowWork-v0.1.2.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
 2. W Chrome otwórz `chrome://extensions`, a w Edge `edge://extensions`.
 3. Włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż folder **UplowWork**, który zawiera `manifest.json`.
 4. Panel otworzy się po instalacji. Kliknij **Połącz wszystkie** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
@@ -31,6 +31,16 @@ Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube
 Domyślnie: film nie jest przeznaczony dla dzieci, komentarze i liczba polubień są widoczne, brak płatnej promocji, osadzanie na innych stronach jest dozwolone.
 
 YouTube wyłącza komentarze w filmach dla dzieci. „Ustawienie platformy” zachowuje stan zastany w danym formularzu.
+
+## Hashtagi i podgląd
+
+Hashtagi wpisujesz w osobnym polu, ze znakiem # lub bez. Aplikacja usuwa powtórzenia, zachowuje polskie znaki i dopisuje blok hashtagów na końcu opisu po jednym pustym wierszu. Nie dodaje automatycznie #shorts, #reels ani #fyp. Hashtagi zapisane już w opisie możesz przenieść do osobnego pola jednym kliknięciem.
+
+Dla Instagrama używane jest pierwszych 5 hashtagów. TikTok również otrzymuje pierwszych 5 jako ustawienie zgodności aplikacji z wariantami formularza — nie jest to deklaracja uniwersalnego limitu TikToka. YouTube otrzymuje do 60 hashtagów łącznie z tymi w tytule, a Facebook wszystkie poprawne hashtagi, o ile cały opis mieści się w limicie aplikacji 2200 znaków. Licznik wskazuje pominięte hashtagi; końcowy tekst jest widoczny w podglądzie każdej platformy.
+
+Podgląd mobilny ma cztery układy z ikonami, paskami, nazwą konta, opisem i dźwiękiem. Można odtwarzać film, przewijać go i rozwinąć opis. YouTube pokazuje tytuł na filmie i osobny panel opisu. Liczniki i nazwa konta są poglądowe, układ zależy od wersji aplikacji i ekranu. Nakładka nie jest dodawana do przesyłanego pliku.
+
+Dokumentacja: [hashtagi w YouTube](https://support.google.com/youtube/answer/6390658), [hashtagi a osobne tagi wideo YouTube](https://support.google.com/youtube/answer/146402), [opis i hashtagi w Facebook Reels](https://www.facebook.com/help/www/2862139500770200), [wskazówki TikToka](https://newsroom.tiktok.com/5-tips-for-tiktok-creators?lang=en). Limit Instagrama uwzględnia komunikat @creators z grudnia 2025; ograniczenia formularzy mogą się zmieniać.
 
 ## Urządzenia i ograniczenia
 

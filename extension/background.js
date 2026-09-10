@@ -1,5 +1,6 @@
 import {getJob,createJob,listJobs,mutateJob,getMedia,removeMedia} from './store.js';
 import {URLS,ACTIVE,TERMINAL,validateRequest,assertCommit,interruptedStatus,validSender} from './policy.js';
+import {captionPlans,captionFor} from './captions.js';
 const now=()=>Date.now();
 const probes=new Map();
 let connectionRequest=Promise.resolve();
@@ -40,7 +41,7 @@ async function handlePanel(m){
  if(m.type==='CREATE'){
   validateRequest(m);const media=await getMedia(m.mediaId);if(!media||media.size!==m.size)throw new Error('Nie zapisano poprawnie filmu. Wybierz plik ponownie.');
   const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await media.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');
-  const id=crypto.randomUUID();await createJob({id,mediaId:m.mediaId,filename:m.filename,size:m.size,mime:m.mime,meta:m.meta,caption:m.caption,title:m.title||'',privacy:m.privacy,kids:m.kids,synthetic:!!m.synthetic,options:m.options||{},digest,createdAt:now(),targets:m.platforms.map(platform=>({platform,status:platform==='instagram'&&m.privacy==='private'?'blocked':'pending',message:platform==='instagram'&&m.privacy==='private'?'Pominięto: brak potwierdzonej opcji „Tylko ja” dla Instagram Reels.':'',updatedAt:now()}))});return {id};
+  const id=crypto.randomUUID();await createJob({id,mediaId:m.mediaId,filename:m.filename,size:m.size,mime:m.mime,meta:m.meta,caption:m.caption,hashtags:m.hashtags||'',captions:Object.fromEntries(Object.entries(captionPlans(m.caption,m.hashtags,m.title)).map(([p,plan])=>[p,plan.text])),title:m.title||'',privacy:m.privacy,kids:m.kids,synthetic:!!m.synthetic,options:m.options||{},digest,createdAt:now(),targets:m.platforms.map(platform=>({platform,status:platform==='instagram'&&m.privacy==='private'?'blocked':'pending',message:platform==='instagram'&&m.privacy==='private'?'Pominięto: brak potwierdzonej opcji „Tylko ja” dla Instagram Reels.':'',updatedAt:now()}))});return {id};
  }
  if(m.type==='START'){if(!await getJob(m.id))throw new Error('Nie znaleziono wysyłki.');await next(m.id);return {};}
  if(m.type==='CANCEL'){
@@ -77,7 +78,7 @@ async function next(id){
 }
 async function dispatch(id,platform,tabId){
  let claimed=false;const j=await touch(id,platform,(t,j)=>{if(t.status==='preparing'&&!t.dispatched&&!j.cancelled){t.dispatched=true;claimed=true;}});if(!claimed)return;
- try{await chrome.scripting.executeScript({target:{tabId},files:['dom.js','runner.js']});const response=await chrome.tabs.sendMessage(tabId,{type:'RUN',job:{...j,targets:undefined,digest:undefined},platform});if(!response?.started)throw new Error('Nie uruchomiono obsługi formularza.');}catch(e){await touch(id,platform,t=>{if(!t.committedAt){t.status='blocked';t.message='Nie udało się otworzyć formularza. Zaloguj się do platformy i sprawdź kartę.';}});await next(id);}
+ try{await chrome.scripting.executeScript({target:{tabId},files:['dom.js','runner.js']});const response=await chrome.tabs.sendMessage(tabId,{type:'RUN',job:{...j,caption:captionFor(j,platform),targets:undefined,digest:undefined},platform});if(!response?.started)throw new Error('Nie uruchomiono obsługi formularza.');}catch(e){await touch(id,platform,t=>{if(!t.committedAt){t.status='blocked';t.message='Nie udało się otworzyć formularza. Zaloguj się do platformy i sprawdź kartę.';}});await next(id);}
 }
 async function probe(tabId,platform){
  const key=platform+':'+tabId;if(probes.has(key))return probes.get(key);
