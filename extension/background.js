@@ -1,8 +1,11 @@
+import {DEFAULT_FACEBOOK_PAGE} from './local-settings.js';
 import {getJob,createJob,listJobs,mutateJob,getMedia,removeMedia,retryTarget} from './store.js';
-import {URLS,ACTIVE,TERMINAL,validateRequest,assertCommit,interruptedStatus,validSender} from './policy.js';
+import {URLS,ACTIVE,TERMINAL,validateRequest,normalizeFacebookPage,assertCommit,interruptedStatus,validSender} from './policy.js';
 import {captionPlans,captionFor} from './captions.js';
 const {assertScheduleProof}=globalThis.UplowWorkSchedule;
 const now=()=>Date.now();
+async function facebookPage(){const saved=await chrome.storage.local.get('facebookPage');const value=saved.facebookPage??DEFAULT_FACEBOOK_PAGE;if(!value)return null;const page=normalizeFacebookPage(value);if(!saved.facebookPage)await chrome.storage.local.set({facebookPage:page});return page;}
+const destination=(job,platform)=>platform==='facebook'?normalizeFacebookPage(job.facebookPage).url:URLS[platform];
 const probes=new Map();
 const tabUpdates=new Map();
 let connectionRequest=Promise.resolve();
@@ -19,7 +22,8 @@ chrome.runtime.onMessage.addListener((m,s,reply)=>respond(async()=>{
  if(s.id!==chrome.runtime.id||!m.id||!m.platform)throw new Error('Brak uprawnień.');
  const job=await getJob(m.id);const target=job?.targets.find(t=>t.platform===m.platform);
  if(!target||!validSender(target,s)||m.attemptId!==target.attemptId)throw new Error('Niezgodna karta lub nieaktualna próba wysyłki.');
- if(m.type==='HEARTBEAT'){if(TERMINAL.includes(target.status))return {cancelled:true};await touch(job.id,target.platform,t=>{});return {cancelled:job.cancelled};}
+ const touchCurrent=fn=>touch(job.id,target.platform,(t,j)=>{if(t.attemptId!==m.attemptId)throw new Error('Nieaktualna próba wysyłki.');fn(t,j);});
+ if(m.type==='HEARTBEAT'){if(TERMINAL.includes(target.status))return {cancelled:true};await touchCurrent(t=>{});return {cancelled:job.cancelled};}
  if(m.type==='CHUNK'){
   if(!['preparing','uploading'].includes(target.status)||job.cancelled)throw new Error('Przesyłanie nie jest aktywne.');
   const thumbnail=m.asset==='thumbnail';const size=thumbnail?job.thumbnail?.size:job.size;
@@ -27,29 +31,40 @@ chrome.runtime.onMessage.addListener((m,s,reply)=>respond(async()=>{
   const file=await getMedia(thumbnail?job.thumbnail.mediaId:job.mediaId);if(!file)throw new Error('Brak pliku na urządzeniu.');
   const bytes=new Uint8Array(await file.slice(m.offset,m.offset+256*1024).arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));return {data:btoa(binary),length:bytes.length};
  }
+ if(m.type==='FACEBOOK_SWITCH'){
+  if(target.platform!=='facebook'||target.committedAt||job.privacy!=='public'||target.facebookSwitchRequested)throw new Error('Nie można ponownie przełączyć profilu w tej próbie.');
+  const page=normalizeFacebookPage(job.facebookPage);
+  if(m.pageId!==page.id||new URL(s.url).searchParams.get('id')!==page.id)throw new Error('Inna strona Facebooka niż wybrany cel.');
+  await touchCurrent((t,j)=>{if(j.cancelled||t.committedAt||TERMINAL.includes(t.status)||t.facebookSwitchRequested)throw new Error('Przełączanie zatrzymane.');t.facebookSwitchRequested=true;t.attemptId=crypto.randomUUID();t.status='preparing';t.dispatched=false;t.navigationPhase='requested';t.message='Przełączanie Facebooka na wybraną stronę.';});return {};
+ }
  if(m.type==='PROGRESS'){
   if(!['uploading','ready'].includes(m.status))throw new Error('Niedozwolony stan.');
-  await touch(job.id,target.platform,(t,j)=>{if(j.cancelled||t.committedAt||TERMINAL.includes(t.status))throw new Error('Wysyłka została zatrzymana.');t.status=m.status;t.message=String(m.message||'').slice(0,300);});return {};
+  await touchCurrent((t,j)=>{if(j.cancelled||t.committedAt||TERMINAL.includes(t.status))throw new Error('Wysyłka została zatrzymana.');t.status=m.status;t.message=String(m.message||'').slice(0,300);});return {};
  }
  if(m.type==='COMMIT'){
-  await touch(job.id,target.platform,(t,j)=>{const acceptedAt=now();assertCommit(j,t,m.proof,acceptedAt);const schedule=assertScheduleProof(j,t,m.proof,acceptedAt);if(schedule)Object.assign(t,{scheduledAt:schedule.timestamp,scheduleDate:schedule.date,scheduleTime:schedule.time,scheduleTimezoneOffset:schedule.timezoneOffset,scheduleConfirmed:true});t.status='committing';t.committedAt=acceptedAt;t.message=schedule?'Zapisywanie harmonogramu TikToka; oczekiwanie na potwierdzenie.':'Rozpoczęto publikację; oczekiwanie na potwierdzenie.';});return {allowed:true};
+  await touchCurrent((t,j)=>{const acceptedAt=now();assertCommit(j,t,m.proof,acceptedAt);const schedule=assertScheduleProof(j,t,m.proof,acceptedAt);if(schedule)Object.assign(t,{scheduledAt:schedule.timestamp,scheduleDate:schedule.date,scheduleTime:schedule.time,scheduleTimezoneOffset:schedule.timezoneOffset,scheduleConfirmed:true});t.status='committing';t.committedAt=acceptedAt;t.message=schedule?'Zapisywanie harmonogramu TikToka; oczekiwanie na potwierdzenie.':'Rozpoczęto publikację; oczekiwanie na potwierdzenie.';});return {allowed:true};
  }
  if(m.type==='CHECK'){
   if(!job.dryRun)throw new Error('Sprawdzenie bez publikacji wymaga trybu testowego.');
-  await touch(job.id,target.platform,(t,j)=>{const checkedAt=now();assertCommit({...j,dryRun:false},t,m.proof,checkedAt);const schedule=assertScheduleProof(j,t,m.proof,checkedAt);t.checkedProof={privacy:m.proof.privacy,mediaKind:m.proof.mediaKind,thumbnailConfirmed:m.proof.thumbnailConfirmed,...(schedule?{scheduledAt:schedule.timestamp,scheduleDate:schedule.date,scheduleTime:schedule.time,scheduleTimezoneOffset:schedule.timezoneOffset,scheduleConfirmed:true}:{})};});return {checked:true,published:false};
+  await touchCurrent((t,j)=>{const checkedAt=now();assertCommit({...j,dryRun:false},t,m.proof,checkedAt);const schedule=assertScheduleProof(j,t,m.proof,checkedAt);t.checkedProof={privacy:m.proof.privacy,mediaKind:m.proof.mediaKind,thumbnailConfirmed:m.proof.thumbnailConfirmed,...(schedule?{scheduledAt:schedule.timestamp,scheduleDate:schedule.date,scheduleTime:schedule.time,scheduleTimezoneOffset:schedule.timezoneOffset,scheduleConfirmed:true}:{})};});return {checked:true,published:false};
  }
  if(m.type==='FINISH'){
-  await touch(job.id,target.platform,(t,j)=>{if(TERMINAL.includes(t.status))return;const allowed=['published','scheduled','submitted','blocked','unknown','draft'];let status=allowed.includes(m.status)?m.status:'unknown';if(['published','scheduled','submitted'].includes(status)&&!t.committedAt)throw new Error('Brak zatwierdzonej publikacji.');if(status==='scheduled'&&(t.platform!=='tiktok'||j.tiktokSchedule!=='auto15'||t.scheduleConfirmed!==true||m.scheduledAt!==t.scheduledAt))throw new Error('Brak potwierdzonego terminu harmonogramu TikToka.');if(status==='published'&&t.platform==='tiktok'&&j.tiktokSchedule==='auto15')throw new Error('TikTok wymaga potwierdzenia zaplanowania, a nie natychmiastowej publikacji.');if(t.committedAt&&status==='blocked')status='unknown';t.status=status;t.message=String(m.message||'').slice(0,500);if(m.diagnostic)t.diagnostic={version:String(m.diagnostic.version||'').slice(0,20),step:String(m.diagnostic.step||'').slice(0,250),code:String(m.diagnostic.code||'').slice(0,80),fileInputs:Array.isArray(m.diagnostic.fileInputs)?m.diagnostic.fileInputs.slice(0,10).map(v=>String(v).slice(0,250)):[],instagramCreateFound:m.diagnostic.instagramCreateFound===true};if(m.url){try{const u=new URL(m.url);const hosts=t.platform==='youtube'?['studio.youtube.com','www.youtube.com','youtube.com']: [new URL(URLS[t.platform]).hostname];if(u.protocol==='https:'&&hosts.includes(u.hostname))t.url=u.href;}catch{}}});await next(job.id);return {};
+  await touchCurrent((t,j)=>{if(TERMINAL.includes(t.status))return;const allowed=['published','scheduled','submitted','blocked','unknown','draft'];let status=allowed.includes(m.status)?m.status:'unknown';if(['published','scheduled','submitted'].includes(status)&&!t.committedAt)throw new Error('Brak zatwierdzonej publikacji.');if(status==='scheduled'&&(t.platform!=='tiktok'||j.tiktokSchedule!=='auto15'||t.scheduleConfirmed!==true||m.scheduledAt!==t.scheduledAt))throw new Error('Brak potwierdzonego terminu harmonogramu TikToka.');if(status==='published'&&t.platform==='tiktok'&&j.tiktokSchedule==='auto15')throw new Error('TikTok wymaga potwierdzenia zaplanowania, a nie natychmiastowej publikacji.');if(t.committedAt&&status==='blocked')status='unknown';t.status=status;t.message=String(m.message||'').slice(0,500);if(m.diagnostic)t.diagnostic={version:String(m.diagnostic.version||'').slice(0,20),step:String(m.diagnostic.step||'').slice(0,250),code:String(m.diagnostic.code||'').slice(0,80),fileInputs:Array.isArray(m.diagnostic.fileInputs)?m.diagnostic.fileInputs.slice(0,10).map(v=>String(v).slice(0,250)):[],instagramCreateFound:m.diagnostic.instagramCreateFound===true};if(m.url){try{const u=new URL(m.url);const hosts=t.platform==='youtube'?['studio.youtube.com','www.youtube.com','youtube.com']: [new URL(URLS[t.platform]).hostname];if(u.protocol==='https:'&&hosts.includes(u.hostname))t.url=u.href;}catch{}}});await next(job.id);return {};
  }
  throw new Error('Nieznane polecenie.');
 },reply));
 async function handlePanel(m){
- if(m.type==='STATE'){const {accounts={}}=await chrome.storage.local.get('accounts');return {accounts,jobs:(await listJobs()).sort((a,b)=>b.createdAt-a.createdAt).slice(0,30)};}
+ if(m.type==='SET_FACEBOOK_PAGE'){
+  if((await listJobs()).some(j=>j.targets.some(t=>t.status==='pending'||ACTIVE.includes(t.status))))throw new Error('Zakończ bieżącą wysyłkę przed zmianą strony.');
+  const page=normalizeFacebookPage(m.url);await chrome.storage.local.set({facebookPage:page});await setAccount('facebook',{connected:false,checkedAt:0,label:'Wybrana strona: '+page.id});return {facebookPage:page};
+ }
+ if(m.type==='STATE'){const {accounts={}}=await chrome.storage.local.get('accounts');return {accounts,facebookPage:await facebookPage(),jobs:(await listJobs()).sort((a,b)=>b.createdAt-a.createdAt).slice(0,30)};}
  if(m.type==='CREATE'){
+  if(m.platforms?.includes('facebook'))m={...m,facebookPage:await facebookPage()};
   validateRequest(m);const media=await getMedia(m.mediaId);if(!media||media.size!==m.size)throw new Error('Nie zapisano poprawnie filmu. Wybierz plik ponownie.');
   if(m.thumbnail){const image=await getMedia(m.thumbnail.mediaId);if(!image||image.size!==m.thumbnail.size||image.size>2*1024*1024||!['image/jpeg','image/png'].includes(image.type))throw new Error('Miniatura musi być obrazem JPG/PNG do 2 MB.');}
   const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await media.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');
-  const id=crypto.randomUUID();await createJob({id,dryRun:m.dryRun===true,...(m.platforms.includes('tiktok')?{tiktokSchedule:'auto15'}:{}),mediaId:m.mediaId,thumbnail:m.thumbnail||null,filename:m.filename,size:m.size,mime:m.mime,lastModified:m.lastModified,meta:m.meta,caption:m.caption,hashtags:m.hashtags||'',captions:Object.fromEntries(Object.entries(captionPlans(m.caption,m.hashtags,m.title)).map(([p,plan])=>[p,plan.text])),title:m.title||'',privacy:m.privacy,kids:m.kids,synthetic:!!m.synthetic,options:m.options||{},digest,createdAt:now(),targets:m.platforms.map(platform=>({platform,attemptId:crypto.randomUUID(),status:platform==='instagram'&&m.privacy==='private'?'blocked':'pending',message:platform==='instagram'&&m.privacy==='private'?'Pominięto: brak potwierdzonej opcji „Tylko ja” dla Instagram Reels.':'',updatedAt:now()}))});return {id};
+  const id=crypto.randomUUID();await createJob({id,dryRun:m.dryRun===true,...(m.platforms.includes('tiktok')?{tiktokSchedule:'auto15'}:{}),facebookPage:m.platforms.includes('facebook')?m.facebookPage:null,mediaId:m.mediaId,thumbnail:m.thumbnail||null,filename:m.filename,size:m.size,mime:m.mime,lastModified:m.lastModified,meta:m.meta,caption:m.caption,hashtags:m.hashtags||'',captions:Object.fromEntries(Object.entries(captionPlans(m.caption,m.hashtags,m.title)).map(([p,plan])=>[p,plan.text])),title:m.title||'',privacy:m.privacy,kids:m.kids,synthetic:!!m.synthetic,options:m.options||{},digest,createdAt:now(),targets:m.platforms.map(platform=>({platform,attemptId:crypto.randomUUID(),status:['instagram','facebook'].includes(platform)&&m.privacy==='private'?'blocked':'pending',message:['instagram','facebook'].includes(platform)&&m.privacy==='private'?'Pominięto: strona Facebooka i Instagram nie mają potwierdzonej opcji „Tylko ja”.':'',updatedAt:now()}))});return {id};
  }
  if(m.type==='RETRY'){
   const job=await getJob(m.id);if(!job)throw new Error('Nie znaleziono wysyłki.');let replacementId;
@@ -65,7 +80,7 @@ async function handlePanel(m){
  if(m.type==='OPEN_TARGET'){
   const job=await getJob(m.id),target=job?.targets.find(t=>t.platform===m.platform);if(!target)throw new Error('Nie znaleziono platformy.');
   if(target.tabId){try{await chrome.tabs.update(target.tabId,{active:true});return {};}catch{}}
-  const tab=await chrome.tabs.create({url:target.url||URLS[target.platform],active:true});
+  const tab=await chrome.tabs.create({url:target.url||destination(job,target.platform),active:true});
   if(!ACTIVE.includes(target.status))await touch(job.id,target.platform,t=>{t.tabId=tab.id;});return {};
  }
  if(m.type==='START'){if(!await getJob(m.id))throw new Error('Nie znaleziono wysyłki.');await next(m.id);return {};}
@@ -86,9 +101,12 @@ function connectPlatforms(platforms){
  const request=connectionRequest.catch(()=>{}).then(async()=>{
   const {connectTabs={}}=await chrome.storage.local.get('connectTabs');const opened=[];
   for(const platform of platforms){try{
+   const page=platform==='facebook'?await facebookPage():null;
+   if(platform==='facebook'&&!page){await setAccount(platform,{connected:false,checking:false,label:'Najpierw wybierz stronę Facebooka.'});continue;}
+   const startUrl=page?.url||URLS[platform];
    let tab;if(connectTabs[platform])try{const candidate=await chrome.tabs.get(connectTabs[platform]);if(new URL(candidate.url).hostname===new URL(URLS[platform]).hostname)tab=candidate;}catch{}
    if(!tab){const candidates=await chrome.tabs.query({url:new URL(URLS[platform]).origin+'/*'});tab=candidates.find(t=>t.active)||candidates[0];}
-   if(!tab)tab=await chrome.tabs.create({url:URLS[platform],active:false});
+   if(!tab)tab=await chrome.tabs.create({url:startUrl,active:false});
    connectTabs[platform]=tab.id;opened.push({platform,id:tab.id});
   }catch{await setAccount(platform,{connected:false,checking:false,label:'Nie udało się otworzyć platformy. Spróbuj przyciskiem Sprawdź.',checkedAt:now()});}}
   await chrome.storage.local.set({connectTabs});
@@ -110,23 +128,23 @@ async function next(id){
    // before navigation so an old "complete" snapshot cannot start the old runner.
    let ready=false;await touch(id,claimed,(t,j)=>{if(t.attemptId===target.attemptId&&t.status==='preparing'&&!j.cancelled){t.tabId=previous.id;t.navigationPhase='requested';t.message='Odświeżanie karty przed ponowieniem wysyłki.';ready=true;}});
    if(!ready)return;
-   if(previous.url===URLS[claimed]){await chrome.tabs.update(previous.id,{active:true});await chrome.tabs.reload(previous.id);}
-   else await chrome.tabs.update(previous.id,{url:URLS[claimed],active:true});
+   if(previous.url===destination(j,claimed)){await chrome.tabs.update(previous.id,{active:true});await chrome.tabs.reload(previous.id);}
+   else await chrome.tabs.update(previous.id,{url:destination(j,claimed),active:true});
    return; // Only a fresh loading -> complete event sequence may dispatch this retry.
   }
-  const tab=await chrome.tabs.create({url:URLS[claimed],active:true});await touch(id,claimed,t=>{if(t.attemptId===target.attemptId&&t.status==='preparing')t.tabId=tab.id;});const latest=await chrome.tabs.get(tab.id);if(latest.status==='complete')await dispatch(id,claimed,tab.id);
+  const tab=await chrome.tabs.create({url:destination(j,claimed),active:true});await touch(id,claimed,t=>{if(t.attemptId===target.attemptId&&t.status==='preparing')t.tabId=tab.id;});const latest=await chrome.tabs.get(tab.id);if(latest.status==='complete')await dispatch(id,claimed,tab.id);
  }catch(e){await touch(id,claimed,t=>{if(t.attemptId===target.attemptId&&t.status==='preparing'&&!t.committedAt){t.status='blocked';t.message='Nie udało się przygotować karty: '+String(e.message).slice(0,200);}});await next(id);}
 }
 async function dispatch(id,platform,tabId){
  let claimed=false;const j=await touch(id,platform,(t,j)=>{if(t.tabId===tabId&&t.status==='preparing'&&!t.navigationPhase&&!t.dispatched&&!j.cancelled){t.dispatched=true;claimed=true;}});if(!claimed)return;
- try{await chrome.scripting.executeScript({target:{tabId},files:['dom.js','schedule.js','tiktok-schedule-ui.js','runner.js']});const response=await chrome.tabs.sendMessage(tabId,{type:'RUN',job:{...j,thumbnail:j.targets.find(t=>t.platform===platform).skipThumbnail?null:j.thumbnail,attemptId:j.targets.find(t=>t.platform===platform).attemptId,caption:captionFor(j,platform),targets:undefined},platform});if(!response?.started)throw new Error('Nie uruchomiono obsługi formularza.');}catch(e){await touch(id,platform,t=>{if(!t.committedAt){t.status='blocked';t.message='Nie udało się otworzyć formularza: '+String(e.message).slice(0,200);}});await next(id);}
+ try{await chrome.scripting.executeScript({target:{tabId},files:['dom.js','facebook-page.js','schedule.js','tiktok-schedule-ui.js','runner.js']});const response=await chrome.tabs.sendMessage(tabId,{type:'RUN',job:{...j,thumbnail:j.targets.find(t=>t.platform===platform).skipThumbnail?null:j.thumbnail,attemptId:j.targets.find(t=>t.platform===platform).attemptId,caption:captionFor(j,platform),targets:undefined},platform});if(!response?.started)throw new Error('Nie uruchomiono obsługi formularza.');}catch(e){await touch(id,platform,t=>{if(!t.committedAt&&t.attemptId===j.targets.find(t=>t.platform===platform).attemptId){t.status='blocked';t.message='Nie udało się otworzyć formularza: '+String(e.message).slice(0,200);}});await next(id);}
 }
 async function probe(tabId,platform){
  const key=platform+':'+tabId;if(probes.has(key))return probes.get(key);
  const work=(async()=>{await setAccount(platform,{checking:true});try{
   const tab=await chrome.tabs.get(tabId);if(new URL(tab.url).hostname!==new URL(URLS[platform]).hostname)throw new Error('Otwarta karta ma inny adres. Kliknij Sprawdź, aby wrócić na platformę.');
-  await chrome.scripting.executeScript({target:{tabId},files:['dom.js','schedule.js','tiktok-schedule-ui.js','runner.js']});
-  const result=await chrome.tabs.sendMessage(tabId,{type:'PROBE',platform});
+  await chrome.scripting.executeScript({target:{tabId},files:['dom.js','facebook-page.js','schedule.js','tiktok-schedule-ui.js','runner.js']});
+  const result=await chrome.tabs.sendMessage(tabId,{type:'PROBE',platform,facebookPage:platform==='facebook'?await facebookPage():undefined});
   await setAccount(platform,{connected:!!result?.connected,checking:false,label:result?.label||'Zaloguj się w otwartej karcie i kliknij Sprawdź.',checkedAt:now()});
  }catch(e){await setAccount(platform,{connected:false,checking:false,label:'Nie udało się sprawdzić karty. Odśwież stronę platformy i kliknij Sprawdź.',checkedAt:now()});}})();
  probes.set(key,work);try{return await work;}finally{probes.delete(key);}

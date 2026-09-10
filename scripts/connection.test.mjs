@@ -33,7 +33,7 @@ test('connect all reuses tabs, retains all four account results and only sends r
  const sent=[],injected=[];let handler;let nextId=20;
  const event=()=>({addListener(){}});
  globalThis.chrome={action:{onClicked:event()},alarms:{create:async()=>{},onAlarm:event()},scripting:{executeScript:async args=>injected.push(args)},
-  storage:{local:{get:async()=>structuredClone(state),set:async value=>Object.assign(state,structuredClone(value))}},
+  storage:{local:{get:async()=>({...structuredClone(state),facebookPage:{id:'123456789012345',url:'https://www.facebook.com/profile.php?id=123456789012345'}}),set:async value=>Object.assign(state,structuredClone(value))}},
   runtime:{id:'test-extension',getURL:p=>'chrome-extension://test-extension/'+p,onInstalled:event(),onStartup:event(),onMessage:{addListener(fn){handler=fn;}}},
   tabs:{onUpdated:event(),onRemoved:event(),get:async id=>{const t=tabs.find(t=>t.id===id);if(!t)throw Error('closed');return t;},
    query:async({url})=>tabs.filter(t=>t.url.startsWith(url.replace('*',''))),
@@ -47,7 +47,7 @@ test('connect all reuses tabs, retains all four account results and only sends r
   assert.deepEqual(Object.keys(state.accounts).sort(),['facebook','instagram','tiktok','youtube']);
   assert.ok(Object.values(state.accounts).every(a=>a.connected&&!a.checking));
   assert.ok(sent.every(m=>m.type==='PROBE'));assert.equal(sent.length,8);
-  assert.ok(injected.every(i=>i.files.join(',')==='dom.js,schedule.js,tiktok-schedule-ui.js,runner.js'));
+  assert.ok(injected.every(i=>i.files.join(',')==='dom.js,facebook-page.js,schedule.js,tiktok-schedule-ui.js,runner.js'));
  }finally{delete globalThis.chrome;}
 });
 

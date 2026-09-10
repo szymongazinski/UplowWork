@@ -2,11 +2,11 @@
 
 Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube Shorts**. Lokalny panel jako rozszerzenie Chrome lub Edge, bez abonamentu i bez dodatkowego serwera.
 
-**Wersja eksperymentalna 0.1.8.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
+**Wersja eksperymentalna 0.1.9.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
 
 ## Instalacja bez programowania
 
-1. Pobierz **UplowWork-v0.1.8.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
+1. Pobierz **UplowWork-v0.1.9.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
 2. W Chrome otwórz `chrome://extensions`, a w Edge `edge://extensions`.
 3. Włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż folder **UplowWork**, który zawiera `manifest.json`.
 4. Panel otworzy się po instalacji. Kliknij **Połącz wszystkie** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
@@ -16,7 +16,7 @@ Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube
 ## Co potrafi
 
 - Jeden plik, wspólny opis i wybór dowolnych platform.
-- Domyślnie zaznaczone są wszystkie cztery platformy i widoczność **Publicznie — wszyscy**. Możesz przełączyć na **Prywatnie — tylko ja**. Instagram jest w trybie prywatnym pomijany, ponieważ w sprawdzonym formularzu nie było takiej opcji.
+- Domyślnie zaznaczone są wszystkie cztery platformy i widoczność **Publicznie — wszyscy**. Możesz przełączyć na **Prywatnie — tylko ja**. Strona Facebooka i Instagram są pomijane w trybie prywatnym, ponieważ nie ma potwierdzonej opcji „Tylko ja”.
 - Dodatkowe ustawienia występują raz, z podpisem wskazującym platformy.
 - Oddzielny status, zatrzymanie i ponowienie dla każdej platformy. Ponowienie używa tej samej karty i nie wysyła ponownie zakończonych platform.
 - Sprawdzenie ustawień przed publikacją i blokada automatycznych duplikatów.
@@ -32,13 +32,23 @@ Domyślnie: film nie jest przeznaczony dla dzieci, komentarze i liczba polubień
 
 YouTube wyłącza komentarze w filmach dla dzieci. „Ustawienie platformy” zachowuje stan zastany w danym formularzu.
 
+## Facebook: wyłącznie wybrana strona
+
+W polu **Strona Facebooka do publikacji** zapisz link `https://www.facebook.com/profile.php?id=…`. Aplikacja przypina identyfikator strony do każdej wysyłki, otwiera jej panel i w razie potrzeby przełącza tożsamość z profilu osobistego. Po przeładowaniu Facebooka kontynuuje tę samą wysyłkę przed przesłaniem pliku.
+
+Przed przekazaniem filmu i końcowym zatwierdzeniem sprawdza identyfikator aktywnej strony z nawigacji Facebooka. Sama nazwa strony lub otwarcie jej adresu nie wystarczają. Niezgodny albo niewidoczny identyfikator blokuje publikację; nie ma powrotu do publikowania na profilu osobistym. Zmiana ustawienia w panelu nie zmienia celu już zapisanej wysyłki.
+
+Starsze wysyłki Facebooka bez przypisanej strony nie mogą zostać ponowione. Utwórz nową wysyłkę z zaznaczonym tylko Facebookiem. Historia pokazuje ID docelowej strony. Strony są obsługiwane z publiczną widocznością; test bez publikacji zatrzymuje się przed końcowym przyciskiem.
+
+Ustawienie strony pozostaje lokalne. Publiczna paczka nie ma wybranej strony; instalacja przygotowana dla użytkownika może zawierać lokalny plik `local-settings.js`, który ustawia pierwszy cel. Późniejsze zmiany zapisane w rozszerzeniu mają pierwszeństwo.
+
 ## Sprawdzanie bez publikacji
 
 Przycisk **Sprawdź wysyłkę bez publikacji** uruchamia ten sam kod obsługi formularzy: przesyła film, uzupełnia opis, ustawia wybraną widoczność i sprawdza pozostałe opcje. Zatrzymuje się przed kliknięciem publikacji. Tryb testowy ma również blokadę publikacji w service workerze. Plik trafia do wybranych serwisów; na ich stronach może pozostać nieopublikowany formularz lub szkic. W historii taki przebieg jest oznaczony **TEST BEZ PUBLIKACJI**. Ponowienie tego przebiegu również jest testem.
 
 Instagram rozpoznaje angielskie pole „Add a caption...” i „Advanced Settings”. W kroku kadrowania automatycznie wybiera **Oryginał** i sprawdza proporcje oraz brak przycięcia obrazu, również na końcowym ekranie rolki. Pionowy film nie pozostaje w domyślnym kwadratowym kadrze.
 
-Wersja 0.1.8 poprawia końcowe zatwierdzanie po przebudowaniu formularza przez platformę. W zwykłym trybie Instagram naciska aktualny **Share**, Facebook **Publish**, a TikTok **Schedule**. Kod ponownie sprawdza opis, widoczność i kadr Instagrama lub termin TikToka po odpowiedzi kolejki, a następnie klika raz. Zmiana tych danych zatrzymuje wysyłkę. Przycisk testowy nadal kończy się bez kliknięcia publikacji.
+Wersja 0.1.9 poprawia końcowe zatwierdzanie po przebudowaniu formularza przez platformę. W zwykłym trybie Instagram naciska aktualny **Share**, Facebook **Publish**, a TikTok **Schedule**. Kod ponownie sprawdza opis, widoczność i kadr Instagrama lub termin TikToka po odpowiedzi kolejki, a następnie klika raz. Zmiana tych danych zatrzymuje wysyłkę. Przycisk testowy nadal kończy się bez kliknięcia publikacji.
 
 TikTok domyślnie używa **Zaplanuj**. Aplikacja po przygotowaniu filmu wybiera najbliższy lokalny termin oddalony o co najmniej 15 minut, zaokrąglony do dostępnego kroku 5 minut (zwykle 15–20 minut). Sprawdza odczytaną datę, godzinę, strefę i widoczność; ponowienie TikToka też oblicza nowy termin. Brak harmonogramu lub odrzucony termin zatrzymuje tę platformę. Nie przełącza się samoczynnie na „Teraz”. [TikTok opisuje minimum 15 minut w dokumentacji planowania](https://ads.tiktok.com/business/en-US/blog/introducing-video-scheduler-now-you-can-plan-tiktoks-in-advance).
 
@@ -46,7 +56,7 @@ Termin jest liczony bez dodatkowego zapasu: o 10:05:00 najbliższy to 10:20, a p
 
 Status **Zaplanowano** oznacza odebranie komunikatu potwierdzenia zapisania harmonogramu. Samo przejście do listy treści daje status niepotwierdzonego wysłania. Przed ponowieniem takiej próby sprawdź, czy film nie znajduje się już na liście zaplanowanych. Tryb **Sprawdź wysyłkę bez publikacji** ustawia termin w formularzu, ale nie klika końcowego przycisku „Zaplanuj”.
 
-Kontrolki daty i godziny oraz pionowe kadrowanie Instagrama sprawdzono na neutralnym filmie bez zatwierdzania publikacji. Nie potwierdzono końcowego zaplanowania na koncie użytkownika. Planowanie nie naprawia odrzucenia samego pliku przez TikToka; jeśli wystąpi ono przed przygotowaniem formularza, wysyłka pozostaje zatrzymana.
+Przełączenie na stronę Facebooka i jej kreator rolki do ostatniego kroku, kontrolki daty i godziny oraz pionowe kadrowanie Instagrama sprawdzono na neutralnym filmie bez zatwierdzania publikacji. Nie potwierdzono końcowego zaplanowania na koncie użytkownika. Planowanie nie naprawia odrzucenia samego pliku przez TikToka; jeśli wystąpi ono przed przygotowaniem formularza, wysyłka pozostaje zatrzymana.
 
 Testy offline uruchamiają rzeczywisty runner na formularzach testowych do etapu wyboru publiczności i zatwierdzenia, włącznie z blokadą publikacji w trybie testowym. Nie zastępują sprawdzenia konkretnego filmu i sesji w przeglądarce użytkownika. **Szczegóły zatrzymania** w historii zawierają wersję skryptu, etap, kod błędu oraz typy pól plików, bez haseł i plików cookie.
 

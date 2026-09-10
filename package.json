@@ -1,6 +1,6 @@
 {
   "name": "uplowwork",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "description": "Jeden film na wybrane TikTok, Facebook Reels, Instagram Reels i YouTube Shorts.",
@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite --config extension/vite.config.mjs",
     "build": "node scripts/build-extension.mjs",
-    "test": "node --test scripts/extension.test.mjs scripts/connection.test.mjs scripts/captions.test.mjs scripts/retry.test.mjs scripts/runner-flow.test.mjs scripts/schedule.test.mjs scripts/tiktok-schedule-ui.test.mjs"
+    "test": "node --test scripts/extension.test.mjs scripts/connection.test.mjs scripts/captions.test.mjs scripts/retry.test.mjs scripts/runner-flow.test.mjs scripts/schedule.test.mjs scripts/tiktok-schedule-ui.test.mjs scripts/facebook-page.test.mjs"
   },
   "dependencies": {
     "clsx": "2.1.1",

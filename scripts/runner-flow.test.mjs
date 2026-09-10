@@ -7,6 +7,7 @@ import {File} from 'node:buffer';
 import {webcrypto} from 'node:crypto';
 import {assertCommit} from '../extension/policy.js';
 const helper=readFileSync(new URL('../extension/dom.js',import.meta.url),'utf8');
+const pageModule=readFileSync(new URL('../extension/facebook-page.js',import.meta.url),'utf8');
 const runner=readFileSync(new URL('../extension/runner.js',import.meta.url),'utf8');
 const scheduleModule=readFileSync(new URL('../extension/schedule.js',import.meta.url),'utf8');
 const scheduleUI=readFileSync(new URL('../extension/tiktok-schedule-ui.js',import.meta.url),'utf8');
@@ -17,15 +18,17 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  window.HTMLElement.prototype.focus=function(){};window.HTMLElement.prototype.scrollIntoView=function(){};
  Object.defineProperty(window.HTMLElement.prototype,'isContentEditable',{get(){return this.getAttribute('contenteditable')==='true';}});
  let selected;document.createRange=()=>({selectNodeContents(e){selected=e;}});window.getSelection=()=>({removeAllRanges(){},addRange(){}});document.execCommand=(cmd,ui,value)=>{selected.replaceChildren(...String(value).split('\n').flatMap((line,i)=>i?[document.createElement('br'),document.createTextNode(line)]:[document.createTextNode(line)]));return true;};
- const put=html=>{document.body.innerHTML=html;};const by=id=>document.getElementById(id);
+ const put=html=>{document.body.innerHTML=(platform==='facebook'&&!scenario.personalActor?'<nav aria-label="Facebook"><a id="actor" href="/'+(scenario.wrongPage?'999999999999999':'123456789012345')+'/ad_center/">Centrum reklam</a></nav>':'')+html;};const by=id=>document.getElementById(id);
  let publishClicks=0,detachedPublishClicks=0,publishReplacements=0,composerReplacements=0,clockJumps=0,scheduleActivations=0,changes=0,detachedChanges=0,createClicks=0,originalClicks=0,pointerDown=false,receive,finish;const messages=[],deliveredFiles=[],scheduledTimes=[];
  const finished=new Promise(resolve=>{finish=resolve;});const bytes=Buffer.from('verified video bytes');
  const digest=Buffer.from(await webcrypto.subtle.digest('SHA-256',bytes)).toString('hex');
  const job={id:'offline-fixture',attemptId:'attempt',dryRun,filename:'fixture.mp4',mime:'video/mp4',lastModified:1700000000000,size:bytes.length,caption:scenario.caption||'Opis testowy',title:'Film',privacy:'public',kids:false,options:scenario.options||{},meta:scenario.meta||{width:720,height:1280,duration:6},digest};
+ if(platform==='facebook'&&!scenario.noPage)job.facebookPage={id:'123456789012345',url:'https://www.facebook.com/profile.php?id=123456789012345'};
  if(scenario.schedule)job.tiktokSchedule='auto15';
  const wireFile=next=>{const input=by('file');input.addEventListener('input',()=>{changes++;});input.addEventListener('change',()=>{if(!input.isConnected){detachedChanges++;return;}changes++;deliveredFiles.push(...input.files);next();});};
  const wirePublish=()=>{const button=by('publish');button.addEventListener('click',()=>{if(!button.isConnected){detachedPublishClicks++;return;}publishClicks++;put(platform==='facebook'?'Your reel is processing':platform==='tiktok'?'<div role="status">Your video has been scheduled</div>':'Your reel has been shared');});};
  const mutateFinalForm=boundary=>{
+  if(scenario.changeActorOn===boundary)by('actor').setAttribute('href','/999999999999999/ad_center/');
   if(scenario.expireScheduleOn===boundary&&!clockJumps){
    const current=context.UplowWorkSchedule.readSchedule(by('schedule-date').value,by('schedule-time').value);
    clock=current.timestamp-15*60000+1-clockBase;clockJumps++;
@@ -44,7 +47,7 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  };
  const caption='<div id="caption" role="textbox" contenteditable="true" aria-label="Dodaj opis..."></div>';
  const fbSettings=()=>{
-  put('<div role="dialog" aria-label="Ustawienia rolki"><h2>Ustawienia rolki</h2>'+caption+'<button id="audience">Znajomi Twoi znajomi na Facebooku</button><button id="publish">Opublikuj</button></div>');
+  put('<div role="dialog" aria-label="Ustawienia rolki"><h2>Ustawienia rolki</h2>'+caption+'<button id="audience">Publiczne Każdy na Facebooku i poza nim</button><button id="publish">Opublikuj</button></div>');
   by('audience').addEventListener('click',()=>{
    const modal=document.createElement('div');modal.setAttribute('role','dialog');modal.setAttribute('aria-label','Wybierz grupę odbiorców');
    modal.innerHTML='<label>Publiczne Każdy na Facebooku i poza nim<input id="public" type="radio" aria-checked="false"></label><label>Znajomi Twoi znajomi na Facebooku<input type="radio" aria-checked="true"></label><button id="done">Gotowe</button>';document.body.append(modal);
@@ -74,10 +77,15 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  if(platform==='tiktok'){
   tiktokUpload();
  }else if(platform==='facebook'){
-  put('<button id="menu">Menu Facebooka</button>');by('menu').addEventListener('click',()=>{put('<button id="reel">Rolka</button>');by('reel').addEventListener('click',()=>{
+  if(scenario.switchPage){
+   put('<nav aria-label="Nawigacja po stronie"><h1>Zarządzanie stroną</h1><button id="switch-page">Przełącz</button></nav>');
+   by('switch-page').addEventListener('click',()=>{const d=document.createElement('div');d.setAttribute('role','dialog');d.innerHTML='<h2>Przełącz profil</h2><button id="confirm-switch">Przełącz</button>';document.body.append(d);by('confirm-switch').addEventListener('click',()=>{finish({status:'handoff'});});});
+  }else{
+  put('<button id="menu">Menu Facebooka</button>');by('menu').addEventListener('click',()=>{put('<div role="dialog"><button id="reel">Rolka</button></div>');by('reel').addEventListener('click',()=>{
    put('<h2>Utwórz rolkę</h2><input type="file" accept="image/*,video/*"><div role="form" aria-label="Rolki"><input id="file" type="file" accept="video/*"></div><input type="file" accept="video/*"><button id="next" disabled>Dalej</button>');
    wireFile(()=>by('next').removeAttribute('disabled'));by('next').addEventListener('click',()=>{put('<h2>Edytuj rolkę</h2><button id="next">Dalej</button>');by('next').addEventListener('click',fbSettings);});
   });});
+  }
  }else{
   const igSettings=()=>{
    const english=!!scenario.english,title=english?'New reel':'Nowa rolka';
@@ -111,20 +119,20 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  }
  let clock=0;const clockBase=scenario.clockBase??Date.now();class FastDate extends Date{static now(){return clockBase+(clock+=scenario.schedule?1:1000);}}
  class Transfer{constructor(){this.files=[];this.items={add:f=>this.files.push(f)};}}
- const context={document,window,File,DataTransfer:Transfer,Event:window.Event,MouseEvent:window.Event,PointerEvent:window.Event,HTMLTextAreaElement:window.HTMLTextAreaElement,HTMLInputElement:window.HTMLInputElement,Date:FastDate,getComputedStyle:()=>({visibility:'visible'}),crypto:webcrypto,Uint8Array,atob:s=>Buffer.from(s,'base64').toString('binary'),setTimeout:(fn,ms)=>setTimeout(fn,Math.min(ms,1)),clearTimeout,setInterval:()=>1,clearInterval(){},location:{pathname:'/'},chrome:{runtime:{id:'fixture',onMessage:{addListener(fn){receive=fn;}},sendMessage:async m=>{
+ const context={document,window,URL,File,DataTransfer:Transfer,Event:window.Event,MouseEvent:window.Event,PointerEvent:window.Event,HTMLTextAreaElement:window.HTMLTextAreaElement,HTMLInputElement:window.HTMLInputElement,Date:FastDate,getComputedStyle:()=>({visibility:'visible'}),crypto:webcrypto,Uint8Array,atob:s=>Buffer.from(s,'base64').toString('binary'),setTimeout:(fn,ms)=>setTimeout(fn,Math.min(ms,1)),clearTimeout,setInterval:()=>1,clearInterval(){},location:{pathname:'/',href:'https://www.facebook.com/profile.php?id=123456789012345'},chrome:{runtime:{id:'fixture',onMessage:{addListener(fn){receive=fn;}},sendMessage:async m=>{
   messages.push(m);if(m.type==='CHUNK'){if(scenario.rerenderUpload)tiktokUpload();return {ok:true,data:(corrupt?Buffer.alloc(bytes.length,1):bytes).toString('base64'),length:bytes.length};}
   if(m.type==='PROGRESS'&&m.status==='ready')mutateFinalForm('ready');
   if(m.type==='CHECK')assertCommit({...job,dryRun:false},{platform,status:'ready'},m.proof,FastDate.now());
   if(m.type==='COMMIT'){assertCommit(job,{platform,status:'ready'},m.proof,FastDate.now());mutateFinalForm('commit');}
   if(m.type==='FINISH')finish(m);return {ok:true};
  }}}};
- runInNewContext(helper,context);runInNewContext(scheduleModule,context);runInNewContext(scheduleUI,context);runInNewContext(runner,context);
+ runInNewContext(helper,context);runInNewContext(pageModule,context);runInNewContext(scheduleModule,context);runInNewContext(scheduleUI,context);runInNewContext(runner,context);
  receive({type:'RUN',job,platform},{id:'fixture'},()=>{});
  const result=await Promise.race([finished,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Runner did not finish fixture')),2000);timer.unref();})]);
  return {result,messages,publishClicks,detachedPublishClicks,publishReplacements,composerReplacements,clockJumps,scheduleActivations,scheduledTimes,changes,detachedChanges,createClicks,originalClicks,pointerDown,deliveredFiles};
 }
 
-test('real Facebook runner selects native Public radio, validates it and stops before publication in test mode',async()=>{
+test('Facebook Page runner verifies page identity and Public audience, then stops before publication in test mode',async()=>{
  const r=await flow('facebook');assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishClicks,0);assert.equal(r.changes,1);assert.ok(r.messages.some(m=>m.type==='CHECK'&&m.proof.privacy==='public'));assert.ok(!r.messages.some(m=>m.type==='COMMIT'));
 });
 test('real Facebook runner automatically publishes after confirming Public in normal mode (offline fixture)',async()=>{
@@ -271,4 +279,20 @@ test('Instagram waits for a modal file input and never clicks a control removed 
 
 test('Instagram stops after three ineffective Create attempts without uploading or publishing',async()=>{
  const r=await flow('instagram',true,false,{unresponsive:true});assert.equal(r.result.status,'blocked');assert.equal(r.result.diagnostic.code,'INSTAGRAM_CREATE_UNRESPONSIVE');assert.equal(r.createClicks,3);assert.equal(r.changes,0);assert.equal(r.publishClicks,0);
+});
+
+
+test('Facebook never uploads as a personal profile, another Page, or a legacy job without a Page',async()=>{
+ for(const scenario of [{personalActor:true},{wrongPage:true},{noPage:true}]){
+  const r=await flow('facebook',false,false,scenario);assert.equal(r.result.status,'blocked',r.result.message);assert.equal(r.changes,0);assert.equal(r.publishClicks,0);assert.ok(!r.messages.some(m=>m.type==='COMMIT'));
+ }
+});
+test('Facebook rechecks numeric Page ID across ready and COMMIT even when display names match',async()=>{
+ for(const changeActorOn of ['ready','commit']){
+  const r=await flow('facebook',false,false,{changeActorOn});assert.equal(r.result.status,changeActorOn==='ready'?'blocked':'unknown');assert.equal(r.publishClicks,0);
+ }
+});
+
+test('Facebook switches using the target Page management panel before any upload and hands off for reload',async()=>{
+ const r=await flow('facebook',true,false,{personalActor:true,switchPage:true});assert.equal(r.result.status,'handoff');assert.equal(r.changes,0);assert.equal(r.publishClicks,0);assert.equal(r.messages.filter(m=>m.type==='FACEBOOK_SWITCH').length,1);assert.equal(r.messages.find(m=>m.type==='FACEBOOK_SWITCH').pageId,'123456789012345');assert.ok(!r.messages.some(m=>m.type==='COMMIT'||m.type==='CHECK'));
 });

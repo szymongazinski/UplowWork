@@ -1,6 +1,8 @@
 import {validateOptions,expectedOptions} from './options.js';
 import {captionPlans,captionFor} from './captions.js';
 import './schedule.js';
+import './facebook-page.js';
+export const normalizeFacebookPage=value=>globalThis.UplowWorkFacebookPage.page(value);
 const {assertScheduleProof}=globalThis.UplowWorkSchedule;
 export const PLATFORMS=['tiktok','facebook','instagram','youtube'];
 export const URLS={tiktok:'https://www.tiktok.com/tiktokstudio/upload',facebook:'https://www.facebook.com/',instagram:'https://www.instagram.com/',youtube:'https://studio.youtube.com/'};
@@ -23,6 +25,7 @@ export function validateRequest(m){
  validateOptions(m.options);
  if(m.synthetic!==undefined&&typeof m.synthetic!=='boolean')throw new Error('Nieprawidłowe oznaczenie AI.');
  if(!Array.isArray(m.platforms)||!m.platforms.length||new Set(m.platforms).size!==m.platforms.length||m.platforms.some(p=>!PLATFORMS.includes(p)))throw new Error('Wybierz prawidłowe platformy.');
+ if(m.platforms.includes('facebook'))normalizeFacebookPage(m.facebookPage);
  if(!['private','public'].includes(m.privacy))throw new Error('Wybierz widoczność filmu.');
  if(typeof m.caption!=='string'||m.caption.length>2200)throw new Error('Opis musi być tekstem do 2200 znaków.');
  const plans=captionPlans(m.caption,m.hashtags,m.title);for(const p of m.platforms)if(plans[p].errors.length)throw new Error(p+': '+plans[p].errors[0]);
@@ -39,7 +42,11 @@ export function assertCommit(job,target,proof,now=Date.now()){
  if(!proof||proof.privacy!==job.privacy||proof.caption!==captionFor(job,target.platform)||proof.privacyConfirmed!==true)throw new Error('Nie potwierdzono opisu i widoczności. Publikacja zatrzymana.');
  assertScheduleProof(job,target,proof,now);
  if(target.platform==='instagram'&&(!Number.isFinite(job.meta?.width)||!Number.isFinite(job.meta?.height)||job.meta.width<=0||job.meta.height<job.meta.width||proof.aspectRatioConfirmed!==true||proof.sourceWidth!==job.meta.width||proof.sourceHeight!==job.meta.height))throw new Error('Nie potwierdzono zachowania oryginalnych proporcji filmu na Instagramie. Publikacja zatrzymana.');
- if(target.platform==='facebook'&&proof.mediaKind!=='reel')throw new Error('Nie potwierdzono kreatora rolki Facebooka.');
+ if(target.platform==='facebook'){
+  if(proof.mediaKind!=='reel')throw new Error('Nie potwierdzono kreatora rolki Facebooka.');
+  const page=normalizeFacebookPage(job.facebookPage);
+  if(job.privacy!=='public'||proof.facebookPageConfirmed!==true||proof.facebookPageId!==page.id)throw new Error('Nie potwierdzono publikacji na wybranej stronie Facebooka. Profil osobisty jest zablokowany.');
+ }
  if(!target.skipThumbnail&&job.thumbnail?.platforms.includes(target.platform)&&proof.thumbnailConfirmed!==true)throw new Error('Nie potwierdzono ustawienia miniatury.');
  if(target.platform==='youtube'&&(proof.title!==job.title||proof.kids!==job.kids))throw new Error('Nie potwierdzono tytułu lub odbiorców YouTube.');
  if(job.synthetic&&proof.syntheticConfirmed!==true)throw new Error('Nie potwierdzono oznaczenia treści AI.');
@@ -53,6 +60,7 @@ export function resetTargetForRetry(job,platform,confirmedAbsent=false){
  if(target.committedAt&&!confirmedAbsent)throw new Error('Najpierw sprawdź na platformie, czy film nie został opublikowany.');
  if(platform==='instagram'&&job.privacy==='private')throw new Error('Instagram nie udostępnia opcji Tylko ja.');
  const tabId=target.tabId;const attempts=[...(target.attempts||[]),{status:target.status,message:target.message,committedAt:target.committedAt,updatedAt:target.updatedAt}].slice(-10);
+ if(platform==='facebook'){normalizeFacebookPage(job.facebookPage);if(job.privacy!=='public')throw new Error('Strona Facebooka nie obsługuje publikacji Tylko ja.');}
  if(platform==='tiktok')job.tiktokSchedule='auto15';
  Object.keys(target).forEach(key=>delete target[key]);
  Object.assign(target,{platform,previousTabId:tabId,status:'pending',message:'Ponowienie tej platformy w kolejce.',updatedAt:Date.now(),attemptId:crypto.randomUUID(),attempts});

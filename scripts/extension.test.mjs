@@ -5,7 +5,7 @@ import {validateRequest,assertCommit,interruptedStatus,validSender,videoFileMeta
 import {expectedOptions} from '../extension/options.js';
 import 'fake-indexeddb/auto';
 import {createJob,listJobs,mutateJob,getJob,saveJob,saveMedia,getMedia,removeMedia} from '../extension/store.js';
-const request={platforms:['tiktok','facebook','youtube'],privacy:'private',caption:'Test',title:'Test',kids:false,size:1024,mime:'video/mp4',filename:'test.mp4',mediaId:'test',meta:{width:720,height:1280,duration:6}};
+const request={facebookPage:{id:'123456789012345',url:'https://www.facebook.com/profile.php?id=123456789012345'},platforms:['tiktok','facebook','youtube'],privacy:'private',caption:'Test',title:'Test',kids:false,size:1024,mime:'video/mp4',filename:'test.mp4',mediaId:'test',meta:{width:720,height:1280,duration:6}};
 test('accepts a complete private request',()=>assert.doesNotThrow(()=>validateRequest(request)));
 test('OS files with no MIME keep their container type and modification date through the request',()=>{
  const lastModified=1681234567890;

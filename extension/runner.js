@@ -1,7 +1,7 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.8';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.9';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
@@ -32,6 +32,7 @@
   // input by then; never deliver the file to that detached element.
   const input=await wait(()=>{const e=globalThis.UplowWorkDOM.videoInput(platform);return e?.isConnected&&enabled(e)?e:null;},'aktywne pole filmu w kreatorze '+platform,120000);
   if(cancelled)throw new Error('Wysyłka zatrzymana.');
+  if(platform==='facebook')globalThis.UplowWorkFacebookPage.assertActor(job.facebookPage);
   const dt=new DataTransfer();dt.items.add(f);input.files=dt.files;
   if(input.files?.length!==1||input.files[0].size!==f.size)throw new Error('Przeglądarka nie przyjęła pliku do pola przesyłania.');
   step('Przesyłanie filmu do '+platform+'.');input.dispatchEvent(new Event('change',{bubbles:true}));
@@ -190,33 +191,50 @@
   if(contentControl){click(contentControl);const rowLink=await wait(()=>all('a').find(a=>a.href.includes(`/video/${videoId}/`)&&label(a).includes(job.title)),'zapisany film na kanale',120000);let row=rowLink.parentElement;for(let i=0;i<6&&row;i++,row=row.parentElement){const expected=job.privacy==='private'?/Prywatny|Private/:/Publiczny|Public/;if(expected.test(label(rowLink))||expected.test(norm(row.innerText)))return {status:'published',message:job.privacy==='private'?'Potwierdzono na kanale: Prywatny.':'Potwierdzono na kanale: Publiczny.',url};}}
   return {status:'submitted',message:'Zapis wysłany. Otwórz film i sprawdź końcowy status.',url};
  }
+ async function ensureFacebookPage(job){
+  const pages=globalThis.UplowWorkFacebookPage,page=pages.page(job.facebookPage);
+  if(job.privacy!=='public')throw new Error('Strona Facebooka nie udostępnia publikacji Tylko ja.');
+  if(pages.actor()===page.id)return pages.assertActor(page);
+  const current=new URL(location.href);
+  if(current.pathname!=='/profile.php'||current.searchParams.get('id')!==page.id)throw new Error('Otwarta karta nie jest wybraną stroną Facebooka.');
+  const ready=await wait(()=>{
+   if(pages.actor()===page.id)return {active:true};
+   const navigation=all('nav,[role="navigation"]').find(e=>all('h1,[role="heading"]',e).some(h=>/^(Zarządzanie stroną|Manage Page)$/i.test(norm(h.innerText))));
+   const button=navigation&&control(/^(Przełącz|Switch)$/,'button',navigation);return button&&enabled(button)?{button}:null;
+  },'aktywna wybrana strona Facebooka lub możliwość przełączenia na nią');
+  if(ready.active)return pages.assertActor(page);
+  click(ready.button);
+  const dialog=()=>all('[role="dialog"]').find(e=>all('h1,h2,[role="heading"]',e).some(h=>/^(Przełącz profil|Switch profile)$/i.test(norm(h.innerText))));
+  await wait(()=>dialog()&&control(/^(Przełącz|Switch)$/,'button',dialog()),'potwierdzenie przełączenia na stronę');
+  await send(job,'facebook','FACEBOOK_SWITCH',{pageId:page.id});
+  const currentDialog=dialog();click(currentDialog&&control(/^(Przełącz|Switch)$/,'button',currentDialog));
+  const reload=new Error('Facebook przeładowuje stronę po przełączeniu profilu.');reload.code='FACEBOOK_RELOADING';throw reload;
+ }
  async function facebook(job){
-  const profile=all('a').find(e=>/^Oś czasu |^Timeline /.test(label(e)))?.href;
+  const pageProof=await ensureFacebookPage(job);
+
+  const profile=globalThis.UplowWorkFacebookPage.page(job.facebookPage).url;
   step('Otwieranie kreatora Facebook Reels.');
-  if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Utwórz rolkę|Create reel)$/)){await press(/^(Menu Facebooka|Facebook menu)$/);await press(/^(Rolka|Reel)$/);}
-  await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Utwórz rolkę|Create reel)$/),'kreator rolki Facebooka');await attach(job,'facebook');
+  if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Utwórz rolkę|Create reel)$/)){await press(/^(Menu Facebooka|Facebook menu)$/);const menu=await wait(()=>all('[role="dialog"]').find(e=>control(/^(Rolka|Reel)$/,'button',e)),'menu tworzenia rolki strony');await press(/^(Rolka|Reel)$/,'button',menu);}
+  await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Utwórz rolkę|Create reel)$/),'kreator rolki Facebooka');globalThis.UplowWorkFacebookPage.assertActor(job.facebookPage);await attach(job,'facebook');
   await press(/^(Dalej|Next)$/);await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Edytuj rolkę|Edit reel)$/),'edycja rolki');const thumbnail=await cover(job,'facebook');await press(/^(Dalej|Next)$/);
   await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/),'ustawienia rolki');const caption=await wait(()=>editable(),'opis rolki Facebooka');fill(caption,job.caption);
-  const audience=await wait(()=>all('button,[role="button"]').find(e=>/^(Znajomi Twoi znajomi|Publiczne Każdy|Tylko ja Tylko ja|Friends Your friends|Public Anyone|Only me Only me)/.test(label(e))),'przycisk odbiorców');click(audience);
-  const audienceDialog=await wait(()=>all('[role=\"dialog\"]').find(e=>/Wybierz grupę odbiorców|Select audience/.test(label(e))),'okno odbiorców Facebooka');
-  const audienceName=job.privacy==='private'?/^(Tylko ja|Only me)$/:/^(Publiczne|Public)(?: |$)/;
-  await press(audienceName,'radio',audienceDialog);await wait(()=>checked(control(audienceName,'radio',audienceDialog)),'wybrana grupa odbiorców');
-  await press(/^(Zakończ wybór ustawienia prywatności odbiorców i zamknij okno dialogowe|Finish selecting audience privacy and close dialog|Gotowe|Done)$/);
-  const expected=job.privacy==='private'?/^(Tylko ja Tylko ja|Only me Only me)$/:/^(Publiczne Każdy|Public Anyone)/;
-  const finalAudience=await wait(()=>all('button,[role="button"]').find(e=>expected.test(label(e))),'potwierdzenie widoczności Facebooka');
+  const expected=/^(Publiczne Każdy|Public Anyone)/;
+  const finalAudience=await wait(()=>all('button,[role="button"]').find(e=>expected.test(label(e))),'publiczna widoczność rolki strony');
   let syntheticConfirmed=!job.synthetic;
   if(job.synthetic){const ai=control(/^(Dodaj etykietę SI|Add AI label)$/,'switch');if(!ai)throw new Error('Nie znaleziono oznaczenia AI.');if(!checked(ai))click(ai);syntheticConfirmed=!!await wait(()=>checked(ai),'oznaczenie AI');}
   await wait(()=>{const e=control(/^(Opublikuj|Publish)$/);return enabled(e)&&e;},'gotowy film',600000);
   if(!expected.test(label(finalAudience))||!captionMatches(caption,job.caption))throw new Error('Nie potwierdzono opisu lub widoczności.');
   if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/))throw new Error('Zamknięto kreator rolki. Publikacja zatrzymana.');
   const resolvePublish=()=>{
+   globalThis.UplowWorkFacebookPage.assertActor(job.facebookPage);
    if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/))throw new Error('Zamknięto kreator rolki. Publikacja zatrzymana.');
    const audience=all('button,[role="button"]').find(e=>expected.test(label(e))),description=editable();
    if(!audience||!description||!captionMatches(description,job.caption))throw new Error('Opis lub widoczność rolki Facebooka zmieniły się przed publikacją.');
    if(job.synthetic&&!checked(control(/^(Dodaj etykietę SI|Add AI label)$/,'switch')))throw new Error('Oznaczenie AI rolki Facebooka zmieniło się.');
    return control(/^(Opublikuj|Publish)$/);
   };
-  await authorize(job,'facebook',{mediaKind:'reel',...thumbnail,privacy:job.privacy,privacyConfirmed:true,caption:job.caption,syntheticConfirmed},resolvePublish);
+  await authorize(job,'facebook',{mediaKind:'reel',...pageProof,...thumbnail,privacy:job.privacy,privacyConfirmed:true,caption:job.caption,syntheticConfirmed},resolvePublish);
   await wait(()=>/Post został udostępniony|Your post has been shared|Trwa przetwarzanie rolki|Your reel is processing/.test(text()),'potwierdzenie Facebooka',120000);
   return {status:'submitted',message:job.privacy==='private'?'Facebook potwierdził wysłanie z ustawieniem Tylko ja. Rolka może jeszcze być przetwarzana.':'Facebook przyjął rolkę do przetwarzania.',url:profile};
  }
@@ -288,13 +306,13 @@
   await authorize(job,'instagram',{privacy:'public',privacyConfirmed:publicProof,caption:job.caption,...extra,...thumbnail,...aspect},resolveShare);
   await wait(()=>/Twoja rolka została udostępniona|Twój post został udostępniony|Your reel has been shared|Your post has been shared/.test(text()),'potwierdzenie Instagrama',120000);return {status:'published',message:'Instagram potwierdził udostępnienie rolki.'};
  }
- async function probe(platform){let result={connected:false,label:platform==='instagram'?'Nie wykryto przycisku tworzenia posta. Otwórz Instagram, sprawdź logowanie i kliknij Sprawdź.':'Zaloguj się w otwartej karcie, następnie kliknij Sprawdź.'};try{await wait(()=>{if(platform==='tiktok')return control(/^(Wybierz filmy|Select videos)$/);if(platform==='facebook')return control(/^(Menu Facebooka|Facebook menu)$/);if(platform==='instagram')return globalThis.UplowWorkDOM.instagramCreate();return control(/^(Prześlij filmy|Upload videos)$/)||control(/^(Utwórz|Create)$/);},'sesja',12000);let name='Zalogowano · '+({facebook:'Facebook',instagram:'Instagram',youtube:'YouTube Studio',tiktok:'TikTok Studio'}[platform]);if(platform==='facebook'){const a=all('a').find(e=>/^Oś czasu |^Timeline /.test(label(e)));if(a)name=label(a).replace(/^Oś czasu |^Timeline /,'');}if(platform==='instagram')name='Zalogowano · Instagram';result={connected:true,label:name};}catch{}return result;}
+ async function probe(platform,facebookPage){let result={connected:false,label:platform==='facebook'?'Wybrana strona nie jest aktywna. Aplikacja przełączy Facebooka na nią przed wysyłką.':platform==='instagram'?'Nie wykryto przycisku tworzenia posta. Otwórz Instagram, sprawdź logowanie i kliknij Sprawdź.':'Zaloguj się w otwartej karcie, następnie kliknij Sprawdź.'};try{await wait(()=>{if(platform==='tiktok')return control(/^(Wybierz filmy|Select videos)$/);if(platform==='facebook')return facebookPage&&globalThis.UplowWorkFacebookPage.actor()===globalThis.UplowWorkFacebookPage.page(facebookPage).id;if(platform==='instagram')return globalThis.UplowWorkDOM.instagramCreate();return control(/^(Prześlij filmy|Upload videos)$/)||control(/^(Utwórz|Create)$/);},'sesja',12000);let name='Zalogowano · '+({facebook:'Facebook',instagram:'Instagram',youtube:'YouTube Studio',tiktok:'TikTok Studio'}[platform]);if(platform==='facebook')name='Strona Facebooka · '+globalThis.UplowWorkFacebookPage.page(facebookPage).id;if(platform==='instagram')name='Zalogowano · Instagram';result={connected:true,label:name};}catch{}return result;}
  chrome.runtime.onMessage.addListener((m,s,reply)=>{
   if(s.id!==chrome.runtime.id)return;
-  if(m.type==='PROBE'){probe(m.platform).then(reply);return true;}
+  if(m.type==='PROBE'){probe(m.platform,m.facebookPage).then(reply);return true;}
   if(m.type!=='RUN')return;
   if(running){reply({started:false});return;}running=true;reply({started:true,version:globalThis.__wrzutkaInstalled});
   cancelled=false;committed=false;const job=m.job,platform=m.platform;currentJob=job;currentPlatform=platform;const heartbeat=setInterval(()=>send(job,platform,'HEARTBEAT').then(r=>{cancelled=r.cancelled;}).catch(()=>{cancelled=true;}),10000);
-  (async()=>{try{const handler={tiktok,youtube,facebook,instagram}[platform];if(!handler)throw new Error('Nieznana platforma.');const result=await handler(job);await send(job,platform,'FINISH',result);}catch(e){await send(job,platform,'FINISH',{status:e.code==='DRY_RUN_COMPLETE'?'draft':committed?'unknown':'blocked',message:e.code==='DRY_RUN_COMPLETE'?e.message:currentStep+': '+e.message,diagnostic:{version:globalThis.__wrzutkaInstalled,step:currentStep,code:e.code||'FORM_ERROR',fileInputs:[...document.querySelectorAll('input[type=file]')].map(e=>e.getAttribute('accept')||''),instagramCreateFound:platform==='instagram'?!!globalThis.UplowWorkDOM.instagramCreate():undefined}}).catch(()=>{});}finally{clearInterval(heartbeat);}})();
+  (async()=>{try{const handler={tiktok,youtube,facebook,instagram}[platform];if(!handler)throw new Error('Nieznana platforma.');const result=await handler(job);await send(job,platform,'FINISH',result);}catch(e){if(e.code==='FACEBOOK_RELOADING')return;await send(job,platform,'FINISH',{status:e.code==='DRY_RUN_COMPLETE'?'draft':committed?'unknown':'blocked',message:e.code==='DRY_RUN_COMPLETE'?e.message:currentStep+': '+e.message,diagnostic:{version:globalThis.__wrzutkaInstalled,step:currentStep,code:e.code||'FORM_ERROR',fileInputs:[...document.querySelectorAll('input[type=file]')].map(e=>e.getAttribute('accept')||''),instagramCreateFound:platform==='instagram'?!!globalThis.UplowWorkDOM.instagramCreate():undefined}}).catch(()=>{});}finally{clearInterval(heartbeat);}})();
  });
 })();

@@ -9,13 +9,13 @@ test('retry changes only failed target and requires checking an uncertain public
  const youtube=structuredClone(job.targets[1]);resetTargetForRetry(job,'tiktok');
  assert.deepEqual(job.targets[1],youtube);assert.equal(job.targets[0].status,'pending');assert.equal(job.targets[0].previousTabId,4);assert.ok(job.targets[0].attemptId);assert.equal(job.targets[0].dispatched,undefined);
  assert.throws(()=>resetTargetForRetry(job,'tiktok'));assert.throws(()=>resetTargetForRetry(job,'youtube',true));
- const uncertain={privacy:'public',targets:[{platform:'facebook',status:'unknown',committedAt:1}]};
+ const uncertain={facebookPage:{id:'123456789012345',url:'https://www.facebook.com/profile.php?id=123456789012345'},privacy:'public',targets:[{platform:'facebook',status:'unknown',committedAt:1}]};
  assert.throws(()=>resetTargetForRetry(uncertain,'facebook'));resetTargetForRetry(uncertain,'facebook',true);assert.equal(uncertain.targets[0].committedAt,undefined);
 });
 
 test('Facebook post composer and unconfirmed thumbnails cannot authorize publication',()=>{
- const job={privacy:'private',caption:'Test',thumbnail:{platforms:['facebook']}};const target={platform:'facebook',status:'ready'};
- const proof={privacy:'private',privacyConfirmed:true,caption:'Test'};
+ const job={facebookPage:{id:'123456789012345',url:'https://www.facebook.com/profile.php?id=123456789012345'},privacy:'public',caption:'Test',thumbnail:{platforms:['facebook']}};const target={platform:'facebook',status:'ready'};
+ const proof={facebookPageId:'123456789012345',facebookPageConfirmed:true,privacy:'public',privacyConfirmed:true,caption:'Test'};
  assert.throws(()=>assertCommit(job,target,proof),/rolki/);assert.throws(()=>assertCommit(job,target,{...proof,mediaKind:'reel'}),/miniatury/);
  assert.doesNotThrow(()=>assertCommit(job,target,{...proof,mediaKind:'reel',thumbnailConfirmed:true}));
 });
