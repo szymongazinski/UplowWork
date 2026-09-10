@@ -2,11 +2,11 @@
 
 Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube Shorts**. Lokalny panel jako rozszerzenie Chrome lub Edge, bez abonamentu i bez dodatkowego serwera.
 
-**Wersja eksperymentalna 0.1.3.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
+**Wersja eksperymentalna 0.1.4.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
 
 ## Instalacja bez programowania
 
-1. Pobierz **UplowWork-v0.1.3.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
+1. Pobierz **UplowWork-v0.1.4.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
 2. W Chrome otwórz `chrome://extensions`, a w Edge `edge://extensions`.
 3. Włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż folder **UplowWork**, który zawiera `manifest.json`.
 4. Panel otworzy się po instalacji. Kliknij **Połącz wszystkie** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
@@ -18,7 +18,7 @@ Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube
 - Jeden plik, wspólny opis i wybór dowolnych platform.
 - Domyślnie zaznaczone są wszystkie cztery platformy i widoczność **Publicznie — wszyscy**. Możesz przełączyć na **Prywatnie — tylko ja**. Instagram jest w trybie prywatnym pomijany, ponieważ w sprawdzonym formularzu nie było takiej opcji.
 - Dodatkowe ustawienia występują raz, z podpisem wskazującym platformy.
-- Oddzielny status każdej wysyłki, trwała kolejka i zatrzymanie kolejnych wysyłek.
+- Oddzielny status, zatrzymanie i ponowienie dla każdej platformy. Ponowienie używa tej samej karty i nie wysyła ponownie zakończonych platform.
 - Sprawdzenie ustawień przed publikacją i blokada automatycznych duplikatów.
 
 | Opcja | Platformy |
@@ -31,6 +31,14 @@ Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube
 Domyślnie: film nie jest przeznaczony dla dzieci, komentarze i liczba polubień są widoczne, brak płatnej promocji, osadzanie na innych stronach jest dozwolone.
 
 YouTube wyłącza komentarze w filmach dla dzieci. „Ustawienie platformy” zachowuje stan zastany w danym formularzu.
+
+## Ponawianie i miniatury
+
+W historii kliknij **Ponów tylko TikTok / Facebook / Instagram / YouTube**. Plik po błędzie pozostaje na komputerze. Gdy poprzednia próba mogła już opublikować film, najpierw otwórz platformę i zaznacz, że sprawdziłeś brak publikacji. Jeśli stara wersja usunęła plik, wybierz ponownie identyczny film u góry formularza; ponowienie sprawdzi jego zawartość i zachowa pierwotny opis oraz ustawienia. Pomyślnie opublikowany YouTube nie jest ponawiany. Zatrzymanie pojedynczej platformy nie anuluje pozostałych.
+
+Miniaturę można przygotować z obrazu JPG/PNG do 2 MB albo automatycznie z klatki w połowie filmu. Generowanie odbywa się lokalnie, bez zmieniania pliku wideo; wynik można też pobrać. Jedną miniaturę przypisujesz do wybranych platform. Potwierdzono formularze przesyłania okładek TikToka i Instagrama. W sprawdzonym kreatorze Facebook Reels nie było pola własnej okładki, więc Facebook zachowuje okładkę domyślną. [Własne miniatury Shorts są wdrażane zależnie od konta YouTube](https://blog.youtube/news-and-events/youtube-studio-custom-thumbnail-updates/). Jeśli pole nie jest dostępne lub brak potwierdzenia miniatury, ta platforma zatrzyma się przed publikacją; można ponowić z domyślną miniaturą.
+
+Aktualizacja 0.1.4 poprawia wybór pola rolki Facebooka (oddzielonego od pól zwykłego posta), ignorowanie ukrytych formularzy, otwieranie kreatora Instagrama i obsługę odrzuconych przesyłań TikToka. Testy obejmują konkurujące ponowienia, nieaktualne próby i zachowanie pliku po błędzie. Przejście formularzy i okładek sprawdzono bez publikacji publicznych; nie jest to potwierdzenie całej kolejki na każdej konfiguracji kont.
 
 ## Hashtagi i podgląd
 
@@ -52,7 +60,7 @@ To automatyzacja widocznych formularzy platform, a nie integracja z ich oficjaln
 
 ## Dane i dostęp
 
-Pliki oraz historia kolejki są zapisywane lokalnie w IndexedDB. Film trafia na wybrane platformy. Rozszerzenie nie odczytuje haseł ani plików cookie i nie wysyła danych do dodatkowego pośrednika. Uprawnienia do kart i skryptów służą obsłudze formularzy wyłącznie czterech zadeklarowanych domen.
+Pliki oraz historia kolejki są zapisywane lokalnie w IndexedDB. Plik i miniatura są zachowywane dla wysyłek błędnych lub z niepotwierdzonym wynikiem, aby umożliwić ponowienie; po potwierdzeniu wszystkich platform są usuwane z pamięci rozszerzenia. Film trafia na wybrane platformy. Rozszerzenie nie odczytuje haseł ani plików cookie i nie wysyła danych do dodatkowego pośrednika. Uprawnienia do kart i skryptów służą obsłudze formularzy wyłącznie czterech zadeklarowanych domen.
 
 Repozytorium i paczka nie zawierają kont, sesji, filmów ani adresów prywatnych publikacji z testów.
 

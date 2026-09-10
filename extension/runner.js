@@ -1,9 +1,9 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled==='0.1.2')return;globalThis.__wrzutkaInstalled='0.1.2';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.4';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
- const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
+ const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
  const label=e=>norm(e.getAttribute('aria-label')||e.innerText||e.textContent);
  const all=(selector,root=document)=>[...root.querySelectorAll(selector)].filter(visible);
@@ -16,15 +16,37 @@
  const click=e=>{if(!e||!visible(e)||!enabled(e))throw new Error('Element formularza nie jest gotowy.');e.click();};
  const checked=e=>e?.getAttribute('aria-checked')==='true'||e?.checked===true||e?.getAttribute('data-state')==='checked';
  const delay=ms=>new Promise(r=>setTimeout(r,ms));
- let cancelled=false,running=false,committed=false;
- async function wait(fn,description,timeout=60000){const start=Date.now();while(Date.now()-start<timeout){if(cancelled&&!committed)throw new Error('Wysyłka zatrzymana.');const value=fn();if(value)return value;if(all('iframe').some(e=>/captcha/i.test(e.getAttribute('title')||'')))throw new Error('Platforma wymaga weryfikacji w przeglądarce.');await delay(400);}throw new Error('Nie potwierdzono: '+description+'. Sprawdź kartę platformy.');}
+ let cancelled=false,running=false,committed=false,currentStep='Uruchamianie formularza',currentJob=null,currentPlatform=null;
+ function step(description){currentStep=description;if(currentJob&&!committed)send(currentJob,currentPlatform,'PROGRESS',{status:'uploading',message:description}).catch(()=>{});}
+ async function wait(fn,description,timeout=60000){step(description);const start=Date.now();while(Date.now()-start<timeout){if(cancelled&&!committed)throw new Error('Wysyłka zatrzymana.');if(currentPlatform==='tiktok'&&!committed){const failure=text().match(/(?:Nie udało się przesłać|Przesyłanie nie powiodło się|Upload failed|Couldn.t upload)[^.\n]*/i);if(failure)throw new Error(failure[0]);}const value=fn();if(value)return value;if(all('iframe').some(e=>/captcha/i.test(e.getAttribute('title')||'')))throw new Error('Platforma wymaga weryfikacji w przeglądarce.');await delay(400);}throw new Error('Nie potwierdzono: '+description+'. Sprawdź kartę platformy.');}
  async function press(test,role='button',root=document,timeout=60000){const e=await wait(()=>{const e=control(test,role,root);return enabled(e)?e:null;},String(test),timeout);click(e);return e;}
  function fill(e,value){if(!visible(e))throw new Error('Pole tekstowe nie jest widoczne.');e.focus();if(e.isContentEditable){const selection=window.getSelection();const range=document.createRange();range.selectNodeContents(e);selection.removeAllRanges();selection.addRange(range);if(!document.execCommand('insertText',false,value)){e.textContent=value;e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:value}));}}else{const proto=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));}if(norm(e.isContentEditable?e.innerText:e.value)!==norm(value))throw new Error('Nie udało się zapisać tekstu.');}
  function field(pattern){const hits=all('textarea,input:not([type=file]),[contenteditable="true"]').filter(e=>matches(norm(e.getAttribute('aria-label')||e.getAttribute('placeholder')||''),pattern));return hits.length===1?hits[0]:null;}
  function editable(role){const hits=all('[contenteditable="true"]').filter(e=>(!role||e.getAttribute('role')===role)&&!/(Napisz do:|Message to:|Napisz wiadomość|Write a message)/i.test(e.getAttribute('aria-label')||''));return hits.length===1?hits[0]:null;}
- const send=(job,platform,type,data={})=>chrome.runtime.sendMessage({id:job.id,platform,type,...data}).then(r=>{if(!r?.ok)throw new Error(r?.error||'Brak odpowiedzi UplowWork.');return r;});
+ const send=(job,platform,type,data={})=>chrome.runtime.sendMessage({id:job.id,attemptId:job.attemptId,platform,type,...data}).then(r=>{if(!r?.ok)throw new Error(r?.error||'Brak odpowiedzi UplowWork.');return r;});
  async function video(job,platform){const parts=[];for(let offset=0;offset<job.size;){const r=await send(job,platform,'CHUNK',{offset});const data=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));if(!data.length||data.length!==r.length)throw new Error('Nieprawidłowy fragment filmu.');parts.push(data);offset+=data.length;}const file=new File(parts,job.filename,{type:job.mime});if(file.size!==job.size)throw new Error('Niepełny plik.');return file;}
- async function attach(job,platform){const input=await wait(()=>{let inputs=[...document.querySelectorAll('input[type="file"]')].filter(e=>{const accept=e.getAttribute('accept')||'';return !accept||/video|mp4|mov|webm/i.test(accept);});if(inputs.length>1){const scoped=inputs.filter(e=>{const dialog=e.closest('[role="dialog"]');return visible(dialog)&&/Utwórz rolkę|Create reel|Prześlij filmy|Upload videos|Utwórz nowy post|Create new post/i.test(dialog.innerText);});if(scoped.length===1)inputs=scoped;}return inputs.length===1?inputs[0]:null;},'pole wyboru filmu');await send(job,platform,'PROGRESS',{status:'uploading',message:'Przesyłanie filmu do platformy.'});const f=await video(job,platform);const dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));}
+ async function attach(job,platform){
+  const input=await wait(()=>globalThis.UplowWorkDOM.videoInput(platform),'pole filmu w kreatorze '+platform,120000);
+  step('Przesyłanie filmu do '+platform+'.');const f=await video(job,platform);const dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+ }
+ async function cover(job,platform){
+  if(!job.thumbnail?.platforms.includes(platform))return {};
+  step('Ustawianie miniatury '+platform+'.');
+  if(platform==='tiktok')click(await wait(()=>exactText(/^(Edytuj okładkę|Edit cover)$/),'edycja okładki TikToka'));
+  if(platform==='facebook'){
+   const edit=control(/^(Edytuj miniaturę|Edytuj okładkę|Zmień miniaturę|Edit thumbnail|Edit cover)$/)||exactText(/^(Miniatura|Thumbnail)$/);
+   if(edit)click(edit);
+  }
+  const input=await wait(()=>{const hits=[...document.querySelectorAll('input[type="file"]')].filter(e=>/image\/(jpeg|png|\*)/i.test(e.getAttribute('accept')||'')&&!/video/i.test(e.getAttribute('accept')||''));return hits.length===1?hits[0]:null;},'pole własnej miniatury. Jeśli konto go nie udostępnia, użyj domyślnej okładki platformy',15000);
+  const parts=[];for(let offset=0;offset<job.thumbnail.size;){const r=await send(job,platform,'CHUNK',{asset:'thumbnail',offset});const bytes=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));if(!bytes.length)throw new Error('Niepełna miniatura.');parts.push(bytes);offset+=bytes.length;}
+  const beforeImages=new Set(all('img,[style]').map(e=>e.getAttribute('src')||e.getAttribute('style')).filter(Boolean));
+  const f=new File(parts,job.thumbnail.mime==='image/png'?'miniatura.png':'miniatura.jpg',{type:job.thumbnail.mime}),dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+  await wait(()=>all('img,[style]').some(e=>{const value=e.getAttribute('src')||e.getAttribute('style')||'';return /blob:|data:image/.test(value)&&!beforeImages.has(value);}), 'podgląd wybranej miniatury',30000);
+  if(platform==='tiktok'){await press(/^(Zapisz|Save)$/);await wait(()=>!control(/^(Upload cover image|Uploaded cover image)$/)&&!!editable('combobox'),'zapis okładki TikToka');}
+  else if(platform==='facebook'){const save=control(/^(Zapisz|Save|Gotowe|Done)$/);if(save)click(save);}
+  return {thumbnailConfirmed:true};
+ }
+
  function read(e){return norm(e.isContentEditable?e.innerText:e.value);}
  function captionMatches(e,expected){const clean=s=>String(s||'').replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ').trim();return clean(e.isContentEditable?e.innerText:e.value)===clean(expected);}
  function findToggle(pattern){
@@ -76,17 +98,18 @@
  async function authorize(job,platform,proof,button){await send(job,platform,'PROGRESS',{status:'ready',message:'Sprawdzono opis i ustawienie widoczności.'});await send(job,platform,'COMMIT',{proof});committed=true;if(!enabled(button)||!visible(button))throw new Error('Przycisk publikacji zmienił stan.');click(button);}
  async function tiktok(job){
   await wait(()=>control(/^(Wybierz filmy|Select videos)$/)||document.querySelector('input[type="file"]'),'zalogowanie do TikTok Studio');await attach(job,'tiktok');
-  const caption=await wait(()=>editable('combobox'),'opis TikToka');fill(caption,job.caption);
+  await wait(()=>{const failure=all('[role=alert]').map(e=>norm(e.innerText)).find(t=>/nie udało|błąd|failed|couldn.t|error/i.test(t));if(failure)throw new Error('TikTok odrzucił przesyłanie: '+failure);return /Przesłano|Uploaded/.test(text());},'zakończenie przesyłania TikToka',600000);
+  const thumbnail=await cover(job,'tiktok');
+  const caption=await wait(()=>editable('combobox')||editable('textbox')||field(/^(Opis|Description|Caption)/),'opis TikToka',600000);fill(caption,job.caption);
   const hint=control(/^(Rozumiem|Got it)$/);if(hint)click(hint);
   const privacy=await wait(()=>all('[role="combobox"]').find(e=>/^(Wszyscy|Everyone|Tylko Ty|Only you|Znajomi|Friends)$/.test(label(e))),'wybór widoczności TikToka');
   click(privacy);const option=await wait(()=>control(job.privacy==='private'?/^(Tylko Ty|Only you)$/:/^(Wszyscy|Everyone)$/,'option'),'opcja widoczności');click(option);
   const expected=job.privacy==='private'?/^(Tylko Ty|Only you)$/:/^(Wszyscy|Everyone)$/;
   await wait(()=>expected.test(label(privacy)),'ustawiona widoczność');
   const extra=await extraOptions(job,'tiktok');
-  await wait(()=>/Przesłano|Uploaded/.test(text()),'zakończenie przesyłania',600000);
   const publish=await wait(()=>{const e=control(/^(Opublikuj|Post)$/);return enabled(e)&&e;},'gotowość do publikacji',600000);
   if(!captionMatches(caption,job.caption)||!expected.test(label(privacy)))throw new Error('Opis lub prywatność uległy zmianie.');
-  await authorize(job,'tiktok',{privacy:job.privacy,privacyConfirmed:true,caption:job.caption,...extra},publish);
+  await authorize(job,'tiktok',{privacy:job.privacy,privacyConfirmed:true,caption:job.caption,...extra,...thumbnail},publish);
   // The content-check confirmation is optional and is not a second publish attempt.
   await wait(()=>{const confirm=control(/^(Opublikuj teraz|Post now)$/);if(confirm&&/Wciąż sprawdzamy|still checking/i.test(text())){click(confirm);return true;}return /\/tiktokstudio\/content/.test(location.pathname);},'potwierdzenie publikacji',120000);
   const result=await wait(()=>all('a[href*="/video/"]').find(a=>norm(a.innerText)===norm(job.caption)),'film na liście treści',120000);
@@ -98,7 +121,7 @@
   const title=await wait(()=>field(/^(Dodaj tytuł|Add a title)/),'tytuł YouTube');fill(title,job.title);
   const description=await wait(()=>field(/^(Opowiedz widzom|Tell viewers)/),'opis YouTube');fill(description,job.caption);
   const audience=await press(job.kids?/^(Przeznaczony dla dzieci|Yes, it.s made for kids)/:/^(Nieprzeznaczony dla dzieci|No, it.s not made for kids)$/,'radio');await wait(()=>checked(audience),'odbiorcy YouTube');
-  const extra=await extraOptions(job,'youtube');
+  const extra=await extraOptions(job,'youtube');const thumbnail=await cover(job,'youtube');
   if(read(title)!==norm(job.title)||!captionMatches(description,job.caption))throw new Error('YouTube nie zapisał tekstu.');
   await press(/^(Widoczność|Visibility)$/,'tab');
   const privacy=await press(job.privacy==='private'?/^(Prywatny|Private)$/:/^(Publiczny|Public)$/,'radio');await wait(()=>checked(privacy),'widoczność YouTube');
@@ -107,7 +130,7 @@
   await wait(()=>!/Przetwarzam do SD|Processing.*SD|Przetwarzanie rozpocznie|Processing will begin/i.test(text()),'przetworzenie filmu',600000);
   const save=await wait(()=>{const e=control(job.privacy==='private'?/^(Zapisz|Save)$/:/^(Opublikuj|Publish)$/);return enabled(e)&&e;},'przycisk zapisu');
   if(!checked(privacy))throw new Error('Nie potwierdzono widoczności YouTube.');
-  await authorize(job,'youtube',{privacy:job.privacy,privacyConfirmed:true,caption:job.caption,title:job.title,kids:job.kids,...extra},save);
+  await authorize(job,'youtube',{privacy:job.privacy,privacyConfirmed:true,caption:job.caption,title:job.title,kids:job.kids,...extra,...thumbnail},save);
   await wait(()=>!visible(save)||!document.contains(save)||/Film opublikowany|Video published|Film został zapisany|Video saved/.test(text()),'zapis YouTube',120000);
   // An explicit saved confirmation is required; closing the dialog alone is not a publication proof.
   const contentLink=all('a').find(a=>/\/content(?:\?|$|\/)/.test(a.href)&&/Treści|Content/.test(label(a)));
@@ -117,9 +140,11 @@
  }
  async function facebook(job){
   const profile=all('a').find(e=>/^Oś czasu |^Timeline /.test(label(e)))?.href;
-  await press(/^(Menu Facebooka|Facebook menu)$/);await press(/^(Rolka|Reel)$/);await attach(job,'facebook');
-  await press(/^(Dalej|Next)$/);await wait(()=>/Edytuj rolkę|Edit reel/.test(text()),'edycja rolki');await press(/^(Dalej|Next)$/);
-  await wait(()=>/Ustawienia rolki|Reel settings/.test(text()),'ustawienia rolki');const caption=await wait(()=>editable(),'opis rolki Facebooka');fill(caption,job.caption);
+  step('Otwieranie kreatora Facebook Reels.');
+  if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Utwórz rolkę|Create reel)$/)){await press(/^(Menu Facebooka|Facebook menu)$/);await press(/^(Rolka|Reel)$/);}
+  await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Utwórz rolkę|Create reel)$/),'kreator rolki Facebooka');await attach(job,'facebook');
+  await press(/^(Dalej|Next)$/);await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Edytuj rolkę|Edit reel)$/),'edycja rolki');const thumbnail=await cover(job,'facebook');await press(/^(Dalej|Next)$/);
+  await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/),'ustawienia rolki');const caption=await wait(()=>editable(),'opis rolki Facebooka');fill(caption,job.caption);
   const audience=await wait(()=>all('button,[role="button"]').find(e=>/^(Znajomi Twoi znajomi|Publiczne Każdy|Tylko ja Tylko ja|Friends Your friends|Public Anyone|Only me Only me)/.test(label(e))),'przycisk odbiorców');click(audience);
   const option=await press(job.privacy==='private'?/^(Tylko ja|Only me)$/:/^(Publiczne Każdy|Public Anyone)/,'radio');await wait(()=>checked(option),'wybrana grupa odbiorców');
   await press(/^(Zakończ wybór ustawienia prywatności odbiorców i zamknij okno dialogowe|Finish selecting audience privacy and close dialog|Done)$/);
@@ -129,15 +154,18 @@
   if(job.synthetic){const ai=control(/^(Dodaj etykietę SI|Add AI label)$/,'switch');if(!ai)throw new Error('Nie znaleziono oznaczenia AI.');if(!checked(ai))click(ai);syntheticConfirmed=!!await wait(()=>checked(ai),'oznaczenie AI');}
   const publish=await wait(()=>{const e=control(/^(Opublikuj|Publish)$/);return enabled(e)&&e;},'gotowy film',600000);
   if(!expected.test(label(finalAudience))||!captionMatches(caption,job.caption))throw new Error('Nie potwierdzono opisu lub widoczności.');
-  await authorize(job,'facebook',{privacy:job.privacy,privacyConfirmed:true,caption:job.caption,syntheticConfirmed},publish);
+  if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/))throw new Error('Zamknięto kreator rolki. Publikacja zatrzymana.');
+  await authorize(job,'facebook',{mediaKind:'reel',...thumbnail,privacy:job.privacy,privacyConfirmed:true,caption:job.caption,syntheticConfirmed},publish);
   await wait(()=>/Post został udostępniony|Your post has been shared|Trwa przetwarzanie rolki|Your reel is processing/.test(text()),'potwierdzenie Facebooka',120000);
   return {status:'submitted',message:job.privacy==='private'?'Facebook potwierdził wysłanie z ustawieniem Tylko ja. Rolka może jeszcze być przetwarzana.':'Facebook przyjął rolkę do przetwarzania.',url:profile};
  }
  async function instagram(job){
   if(job.privacy!=='public')return {status:'blocked',message:'Instagram Reels nie ma potwierdzonej opcji Tylko ja. Nic nie wysłano.'};
-  const create=await wait(()=>globalThis.UplowWorkDOM.instagramCreate(),'utworzenie rolki Instagram');click(create);await attach(job,'instagram');
+  step('Otwieranie kreatora Instagrama.');
+  const create=await wait(()=>globalThis.UplowWorkDOM.instagramCreate(),'przycisk tworzenia Instagrama',120000);click(create);
+  let submenuClicked=false;await wait(()=>{if(globalThis.UplowWorkDOM.videoInput('instagram'))return true;const post=control(/^(Post|Publikacja|Rolka|Reel)$/);if(post&&!submenuClicked){submenuClicked=true;click(post);}return false;},'wybór filmu w kreatorze Instagrama',120000);await attach(job,'instagram');
   await wait(()=>control(/^(OK)$/)||/Przytnij|Crop/.test(text()),'kadrowanie');const ok=control('OK');if(ok)click(ok);
-  await press(/^(Dalej|Next)$/);await wait(()=>/Edytuj|Edit/.test(text()),'edycja Instagrama');await press(/^(Dalej|Next)$/);
+  await press(/^(Dalej|Next)$/);await wait(()=>/Edytuj|Edit/.test(text()),'edycja Instagrama');const thumbnail=await cover(job,'instagram');await press(/^(Dalej|Next)$/);
   const caption=await wait(()=>field(/^(Dodaj opis|Write a caption)/),'opis Instagrama');fill(caption,job.caption);
   // Disable crossposting to avoid a duplicate or a different Facebook audience.
   const fbLabel=exactText(/.+Facebook · (Publiczne|Public|Znajomi|Friends)/);if(fbLabel){let row=fbLabel.parentElement;for(let i=0;i<4&&row;i++,row=row.parentElement){const switches=all('[role="switch"]',row);if(switches.length===1){if(checked(switches[0]))click(switches[0]);await wait(()=>!checked(switches[0]),'wyłączone równoległe udostępnianie na Facebooku');break;}if(i===3)throw new Error('Nie potwierdzono wyłączenia dodatkowego udostępniania na Facebooku.');}}
@@ -145,7 +173,7 @@
   // Public posting is allowed only after an explicit public audience disclosure.
   const publicProof=/każdy będzie mógł ją zobaczyć|anyone can see|everyone can see/i.test(text());if(!publicProof)throw new Error('Nie potwierdzono publicznej widoczności rolki.');
   const share=await wait(()=>{const e=control(/^(Udostępnij|Share)$/);return enabled(e)&&e;},'gotowość rolki');
-  if(!captionMatches(caption,job.caption))throw new Error('Nie potwierdzono opisu.');await authorize(job,'instagram',{privacy:'public',privacyConfirmed:publicProof,caption:job.caption,...extra},share);
+  if(!captionMatches(caption,job.caption))throw new Error('Nie potwierdzono opisu.');await authorize(job,'instagram',{privacy:'public',privacyConfirmed:publicProof,caption:job.caption,...extra,...thumbnail},share);
   await wait(()=>/Twoja rolka została udostępniona|Twój post został udostępniony|Your reel has been shared|Your post has been shared/.test(text()),'potwierdzenie Instagrama',120000);return {status:'published',message:'Instagram potwierdził udostępnienie rolki.'};
  }
  async function probe(platform){let result={connected:false,label:platform==='instagram'?'Nie wykryto przycisku tworzenia posta. Otwórz Instagram, sprawdź logowanie i kliknij Sprawdź.':'Zaloguj się w otwartej karcie, następnie kliknij Sprawdź.'};try{await wait(()=>{if(platform==='tiktok')return control(/^(Wybierz filmy|Select videos)$/);if(platform==='facebook')return control(/^(Menu Facebooka|Facebook menu)$/);if(platform==='instagram')return globalThis.UplowWorkDOM.instagramCreate();return control(/^(Prześlij filmy|Upload videos)$/)||control(/^(Utwórz|Create)$/);},'sesja',12000);let name='Zalogowano · '+({facebook:'Facebook',instagram:'Instagram',youtube:'YouTube Studio',tiktok:'TikTok Studio'}[platform]);if(platform==='facebook'){const a=all('a').find(e=>/^Oś czasu |^Timeline /.test(label(e)));if(a)name=label(a).replace(/^Oś czasu |^Timeline /,'');}if(platform==='instagram')name='Zalogowano · Instagram';result={connected:true,label:name};}catch{}return result;}
@@ -154,7 +182,7 @@
   if(m.type==='PROBE'){probe(m.platform).then(reply);return true;}
   if(m.type!=='RUN')return;
   if(running){reply({started:false});return;}running=true;reply({started:true});
-  const job=m.job,platform=m.platform;const heartbeat=setInterval(()=>send(job,platform,'HEARTBEAT').then(r=>{cancelled=r.cancelled;}).catch(()=>{cancelled=true;}),10000);
-  (async()=>{try{const handler={tiktok,youtube,facebook,instagram}[platform];if(!handler)throw new Error('Nieznana platforma.');const result=await handler(job);await send(job,platform,'FINISH',result);}catch(e){await send(job,platform,'FINISH',{status:committed?'unknown':'blocked',message:e.message}).catch(()=>{});}finally{clearInterval(heartbeat);}})();
+  cancelled=false;committed=false;const job=m.job,platform=m.platform;currentJob=job;currentPlatform=platform;const heartbeat=setInterval(()=>send(job,platform,'HEARTBEAT').then(r=>{cancelled=r.cancelled;}).catch(()=>{cancelled=true;}),10000);
+  (async()=>{try{const handler={tiktok,youtube,facebook,instagram}[platform];if(!handler)throw new Error('Nieznana platforma.');const result=await handler(job);await send(job,platform,'FINISH',result);}catch(e){await send(job,platform,'FINISH',{status:committed?'unknown':'blocked',message:currentStep+': '+e.message}).catch(()=>{});}finally{clearInterval(heartbeat);}})();
  });
 })();

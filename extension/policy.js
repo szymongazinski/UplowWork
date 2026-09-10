@@ -16,15 +16,29 @@ export function validateRequest(m){
  if(!m.meta||!Number.isFinite(m.meta.duration)||m.meta.duration<=0||m.meta.duration>180||!Number.isFinite(m.meta.width)||!Number.isFinite(m.meta.height)||m.meta.width<=0||m.meta.height<m.meta.width)throw new Error('Wybierz pionowy lub kwadratowy film o długości do 3 minut.');
  if(!Number.isInteger(m.size)||m.size<1||m.size>100*1024*1024||!['video/mp4','video/quicktime','video/webm'].includes(m.mime))throw new Error('Obsługiwane są MP4, MOV i WebM do 100 MB.');
  if(typeof m.filename!=='string'||m.filename.length>255||typeof m.mediaId!=='string')throw new Error('Nieprawidłowy plik.');
+ if(m.thumbnail&&(!['middle','custom'].includes(m.thumbnail.mode)||typeof m.thumbnail.mediaId!=='string'||!Number.isInteger(m.thumbnail.size)||m.thumbnail.size<1||m.thumbnail.size>2*1024*1024||!['image/jpeg','image/png'].includes(m.thumbnail.mime)||!Array.isArray(m.thumbnail.platforms)||m.thumbnail.platforms.some(p=>!m.platforms.includes(p))))throw new Error('Nieprawidłowa miniatura.');
 }
 export function assertCommit(job,target,proof){
  if(job.cancelled||target.status!=='ready'||target.committedAt)throw new Error('Wysyłka została zatrzymana albo rozpoczęta wcześniej.');
  if(target.platform==='instagram'&&job.privacy==='private')throw new Error('Instagram nie ma potwierdzonej opcji Tylko ja.');
  if(!proof||proof.privacy!==job.privacy||proof.caption!==captionFor(job,target.platform)||proof.privacyConfirmed!==true)throw new Error('Nie potwierdzono opisu i widoczności. Publikacja zatrzymana.');
+ if(target.platform==='facebook'&&proof.mediaKind!=='reel')throw new Error('Nie potwierdzono kreatora rolki Facebooka.');
+ if(!target.skipThumbnail&&job.thumbnail?.platforms.includes(target.platform)&&proof.thumbnailConfirmed!==true)throw new Error('Nie potwierdzono ustawienia miniatury.');
  if(target.platform==='youtube'&&(proof.title!==job.title||proof.kids!==job.kids))throw new Error('Nie potwierdzono tytułu lub odbiorców YouTube.');
  if(job.synthetic&&proof.syntheticConfirmed!==true)throw new Error('Nie potwierdzono oznaczenia treści AI.');
  for(const [key,value]of Object.entries(expectedOptions(job,target.platform)))if(proof.options?.[key]!==value)throw new Error('Nie potwierdzono ustawienia: '+key+'. Publikacja zatrzymana.');
  return true;
 }
 export function interruptedStatus(target){return target.committedAt?'unknown':'blocked';}
+export function resetTargetForRetry(job,platform,confirmedAbsent=false){
+ const target=job.targets.find(t=>t.platform===platform);
+ if(!target||!['blocked','cancelled','draft','unknown','submitted'].includes(target.status))throw new Error('Tę platformę już wysłano albo jej wysyłka trwa.');
+ if(target.committedAt&&!confirmedAbsent)throw new Error('Najpierw sprawdź na platformie, czy film nie został opublikowany.');
+ if(platform==='instagram'&&job.privacy==='private')throw new Error('Instagram nie udostępnia opcji Tylko ja.');
+ const tabId=target.tabId;const attempts=[...(target.attempts||[]),{status:target.status,message:target.message,committedAt:target.committedAt,updatedAt:target.updatedAt}].slice(-10);
+ Object.keys(target).forEach(key=>delete target[key]);
+ Object.assign(target,{platform,previousTabId:tabId,status:'pending',message:'Ponowienie tej platformy w kolejce.',updatedAt:Date.now(),attemptId:crypto.randomUUID(),attempts});
+ job.cancelled=false;
+ return job;
+}
 export function validSender(target,sender){try{return sender.tab?.id===target.tabId&&sender.frameId===0&&new URL(sender.url).hostname===HOSTS[target.platform]&&new URL(sender.url).protocol==='https:';}catch{return false;}}

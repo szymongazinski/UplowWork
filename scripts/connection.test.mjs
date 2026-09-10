@@ -13,7 +13,7 @@ function page(html){
  const context={document,getComputedStyle:()=>({visibility:'visible'}),setTimeout,clearTimeout,setInterval,clearInterval,
  chrome:{runtime:{id:'test-extension',onMessage:{addListener(fn){receive=fn;}}}}};
  runInNewContext(helpers,context);runInNewContext(runner,context);
- return {find:()=>context.UplowWorkDOM.instagramCreate(),probe:()=>new Promise(resolve=>receive({type:'PROBE',platform:'instagram'},{id:'test-extension'},resolve))};
+ return {dom:context.UplowWorkDOM,find:()=>context.UplowWorkDOM.instagramCreate(),probe:()=>new Promise(resolve=>receive({type:'PROBE',platform:'instagram'},{id:'test-extension'},resolve))};
 }
 test('Instagram icon without visible text or SVG title is recognized',async()=>{
  const p=page('<a href="#" role="link"><svg aria-label="Nowy post" role="img"></svg></a>');
@@ -49,4 +49,13 @@ test('connect all reuses tabs, retains all four account results and only sends r
   assert.ok(sent.every(m=>m.type==='PROBE'));assert.equal(sent.length,8);
   assert.ok(injected.every(i=>i.files.join(',')==='dom.js,runner.js'));
  }finally{delete globalThis.chrome;}
+});
+
+test('Facebook selects the reel form input when unrelated post and duplicate upload inputs exist',()=>{
+ const p=page('<h2>Utwórz rolkę</h2><input id="post" type="file" accept="image/*,video/*"><div role="form" aria-label="Rolki"><input id="reel" type="file" accept="video/*"></div><input id="duplicate" type="file" accept="video/*">');
+ assert.equal(p.dom.videoInput('facebook').id,'reel');assert.equal(p.dom.facebookReelStage(/^Utwórz rolkę$/),true);
+ const wrong=page('<h2>Utwórz post</h2><input type="file" accept="video/*">');assert.equal(wrong.dom.videoInput('facebook'),null);assert.equal(wrong.dom.facebookReelStage(/^Utwórz rolkę$/),false);
+});
+test('hidden background controls cannot make Instagram create ambiguous or confirm a reel',()=>{
+ const p=page('<div aria-hidden="true"><a>Nowy post</a><h2>Utwórz rolkę</h2></div><button id="visible">Utwórz</button>');assert.equal(p.find().id,'visible');assert.equal(p.dom.facebookReelStage(/^Utwórz rolkę$/),false);
 });
