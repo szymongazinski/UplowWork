@@ -1,0 +1,27 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {validateRequest,assertCommit,interruptedStatus,validSender} from '../extension/policy.js';
+import {expectedOptions} from '../extension/options.js';
+import 'fake-indexeddb/auto';
+import {createJob,listJobs,mutateJob,getJob,saveMedia,getMedia,removeMedia} from '../extension/store.js';
+const request={platforms:['tiktok','facebook','youtube'],privacy:'private',caption:'Test',title:'Test',kids:false,size:1024,mime:'video/mp4',filename:'test.mp4',mediaId:'test',meta:{width:720,height:1280,duration:6}};
+test('accepts a complete private request',()=>assert.doesNotThrow(()=>validateRequest(request)));
+test('shared options are scoped to supported platforms',()=>{const j={...request,options:{comments:'off',likeCounts:'hide',embedding:'off'}};assert.deepEqual(expectedOptions(j,'tiktok'),{comments:'off'});assert.deepEqual(expectedOptions(j,'instagram'),{comments:'off',likeCounts:'hide'});assert.deepEqual(expectedOptions(j,'facebook'),{});assert.deepEqual(expectedOptions(j,'youtube'),{comments:'off',likeCounts:'hide',embedding:'off'});});
+test('made-for-kids overrides YouTube comments only',()=>{const j={...request,kids:true,options:{comments:'on'}};assert.deepEqual(expectedOptions(j,'youtube'),{comments:'off'});assert.deepEqual(expectedOptions(j,'tiktok'),{comments:'on'});});
+test('rejects unsupported option values and missing platform confirmation',()=>{for(const options of [{comments:'paused'},{audience:'public'},null,[]])assert.throws(()=>validateRequest({...request,options}));const j={...request,options:{comments:'off'}},t={platform:'tiktok',status:'ready'},p={privacy:'private',privacyConfirmed:true,caption:'Test'};assert.throws(()=>assertCommit(j,t,p));assert.throws(()=>assertCommit(j,t,{...p,options:{comments:'on'}}));assert.doesNotThrow(()=>assertCommit(j,t,{...p,options:{comments:'off'}}));});
+test('rejects altered audience, unknown platform, invalid file and missing children selection',()=>{for(const patch of [{privacy:'friends'},{platforms:['instagram','instagram']},{platforms:['evil']},{size:1024*1024*101},{meta:{...request.meta,duration:Infinity}},{kids:undefined},{caption:''}])assert.throws(()=>validateRequest({...request,...patch}));});
+test('private Instagram cannot be committed even with forged proof',()=>assert.throws(()=>assertCommit(request,{platform:'instagram',status:'ready'},{privacy:'private',caption:'Test',privacyConfirmed:true})));
+test('prevents public fallback, missing privacy proof, caption changes and duplicate commits',()=>{const target={platform:'tiktok',status:'ready'};const proof={privacy:'private',caption:'Test',privacyConfirmed:true};assert.equal(assertCommit(request,target,proof),true);for(const patch of [{privacy:'public'},{privacyConfirmed:false},{caption:'changed'}])assert.throws(()=>assertCommit(request,target,{...proof,...patch}));assert.throws(()=>assertCommit(request,{...target,committedAt:123},proof));assert.throws(()=>assertCommit({...request,cancelled:true},target,proof));});
+test('YouTube title and children metadata must be confirmed',()=>{const t={platform:'youtube',status:'ready'};const p={privacy:'private',caption:'Test',title:'Test',kids:false,privacyConfirmed:true};assert.doesNotThrow(()=>assertCommit(request,t,p));assert.throws(()=>assertCommit(request,t,{...p,kids:true}));assert.throws(()=>assertCommit(request,t,{...p,title:'other'}));});
+test('an interrupted committed job cannot be treated as safe to repeat',()=>{assert.equal(interruptedStatus({committedAt:123}),'unknown');assert.equal(interruptedStatus({}),'blocked');});
+test('rejects requests from a different tab, frame, domain or insecure origin',()=>{const t={tabId:7,platform:'tiktok'},s={tab:{id:7},frameId:0,url:'https://www.tiktok.com/tiktokstudio/upload'};assert.equal(validSender(t,s),true);for(const patch of [{tab:{id:8}},{frameId:1},{url:'https://www.tiktok.com.evil.test/'},{url:'http://www.tiktok.com/'},{url:'not-a-url'}])assert.equal(validSender(t,{...s,...patch}),false);});
+test('durable queue serializes concurrent starts and preserves platform updates',async()=>{
+ const make=id=>({id,digest:'same-video',caption:'Test',privacy:'private',targets:[{platform:'facebook',status:'pending'},{platform:'youtube',status:'pending'}]});
+ const results=await Promise.allSettled([createJob(make('first')),createJob(make('second'))]);assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal((await listJobs()).length,1);
+ const id=(await listJobs())[0].id;
+ await Promise.all([mutateJob(id,j=>{j.targets[0].status='published';j.targets[0].committedAt=123;return j;}),mutateJob(id,j=>{j.targets[1].status='blocked';return j;})]);
+ const stored=await getJob(id);assert.equal(stored.targets[0].status,'published');assert.equal(stored.targets[1].status,'blocked');
+ await assert.rejects(()=>createJob(make('duplicate')),/już wysyłany/);
+ await createJob({...make('different-audience'),privacy:'public'});
+});
+test('file persistence preserves bytes and cleanup removes only the selected file',async()=>{await saveMedia('one',new Blob(['first']));await saveMedia('two',new Blob(['second']));assert.equal(await(await getMedia('one')).text(),'first');await removeMedia('one');assert.equal(await getMedia('one'),undefined);assert.equal(await(await getMedia('two')).text(),'second');});
