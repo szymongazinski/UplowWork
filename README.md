@@ -2,11 +2,11 @@
 
 Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube Shorts**. Lokalny panel jako rozszerzenie Chrome lub Edge, bez abonamentu i bez dodatkowego serwera.
 
-**Wersja eksperymentalna 0.1.7.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
+**Wersja eksperymentalna 0.1.8.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
 
 ## Instalacja bez programowania
 
-1. Pobierz **UplowWork-v0.1.7.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
+1. Pobierz **UplowWork-v0.1.8.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
 2. W Chrome otwórz `chrome://extensions`, a w Edge `edge://extensions`.
 3. Włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż folder **UplowWork**, który zawiera `manifest.json`.
 4. Panel otworzy się po instalacji. Kliknij **Połącz wszystkie** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
@@ -36,9 +36,13 @@ YouTube wyłącza komentarze w filmach dla dzieci. „Ustawienie platformy” za
 
 Przycisk **Sprawdź wysyłkę bez publikacji** uruchamia ten sam kod obsługi formularzy: przesyła film, uzupełnia opis, ustawia wybraną widoczność i sprawdza pozostałe opcje. Zatrzymuje się przed kliknięciem publikacji. Tryb testowy ma również blokadę publikacji w service workerze. Plik trafia do wybranych serwisów; na ich stronach może pozostać nieopublikowany formularz lub szkic. W historii taki przebieg jest oznaczony **TEST BEZ PUBLIKACJI**. Ponowienie tego przebiegu również jest testem.
 
-Wersja 0.1.7 rozpoznaje angielskie pole Instagrama „Add a caption...” i „Advanced Settings”. W kroku kadrowania automatycznie wybiera **Oryginał** i sprawdza proporcje oraz brak przycięcia obrazu, również na końcowym ekranie rolki. Pionowy film nie pozostaje w domyślnym kwadratowym kadrze.
+Instagram rozpoznaje angielskie pole „Add a caption...” i „Advanced Settings”. W kroku kadrowania automatycznie wybiera **Oryginał** i sprawdza proporcje oraz brak przycięcia obrazu, również na końcowym ekranie rolki. Pionowy film nie pozostaje w domyślnym kwadratowym kadrze.
+
+Wersja 0.1.8 poprawia końcowe zatwierdzanie po przebudowaniu formularza przez platformę. W zwykłym trybie Instagram naciska aktualny **Share**, Facebook **Publish**, a TikTok **Schedule**. Kod ponownie sprawdza opis, widoczność i kadr Instagrama lub termin TikToka po odpowiedzi kolejki, a następnie klika raz. Zmiana tych danych zatrzymuje wysyłkę. Przycisk testowy nadal kończy się bez kliknięcia publikacji.
 
 TikTok domyślnie używa **Zaplanuj**. Aplikacja po przygotowaniu filmu wybiera najbliższy lokalny termin oddalony o co najmniej 15 minut, zaokrąglony do dostępnego kroku 5 minut (zwykle 15–20 minut). Sprawdza odczytaną datę, godzinę, strefę i widoczność; ponowienie TikToka też oblicza nowy termin. Brak harmonogramu lub odrzucony termin zatrzymuje tę platformę. Nie przełącza się samoczynnie na „Teraz”. [TikTok opisuje minimum 15 minut w dokumentacji planowania](https://ads.tiktok.com/business/en-US/blog/introducing-video-scheduler-now-you-can-plan-tiktoks-in-advance).
+
+Termin jest liczony bez dodatkowego zapasu: o 10:05:00 najbliższy to 10:20, a po przekroczeniu tej granicy — 10:25. Gdy termin wygaśnie podczas końcowego przygotowania, ale jeszcze przed zatwierdzeniem wysyłki, aplikacja przelicza go automatycznie. Po rozpoczęciu zatwierdzania nie ponawia publikacji.
 
 Status **Zaplanowano** oznacza odebranie komunikatu potwierdzenia zapisania harmonogramu. Samo przejście do listy treści daje status niepotwierdzonego wysłania. Przed ponowieniem takiej próby sprawdź, czy film nie znajduje się już na liście zaplanowanych. Tryb **Sprawdź wysyłkę bez publikacji** ustawia termin w formularzu, ale nie klika końcowego przycisku „Zaplanuj”.
 

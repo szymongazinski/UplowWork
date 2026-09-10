@@ -18,6 +18,12 @@
   const button=()=>{const e=control(/^(Zaplanuj|Schedule)$/);return e&&visible(e)&&enabled(e)?e:null;};
   const calendar=()=>one(all('.calendar-wrapper'));
   const timepicker=()=>one(all('.tiktok-timepicker-time-picker-container'));
+  const timeOption=(selector,value,description)=>{
+   const picker=timepicker();if(!picker)return null;
+   const option=one(all(selector,picker).filter(e=>norm(e.textContent)===value));
+   if(option&&!enabled(option))throw new Error('Najbliższa '+description+' '+value+' jest niedostępna w harmonogramie TikToka.');
+   return option;
+  };
   const monthInfo=element=>{
    const monthTitle=one(all('.month-title',element)),yearTitle=one(all('.year-title',element));
    const month=MONTHS.findIndex(names=>names.includes(norm(monthTitle?.textContent).toLocaleLowerCase('pl-PL')));
@@ -68,13 +74,13 @@
    await wait(timepicker,'wybór godziny harmonogramu TikToka',15000);
    const [hour,minute]=target.time.split(':');
    if(fields()?.time.value.split(':')[0]!==hour){
-    const hourControl=await wait(()=>{const picker=timepicker();return picker&&one(all('.tiktok-timepicker-left',picker).filter(e=>norm(e.textContent)===hour&&enabled(e)));},'godzina '+hour+' w harmonogramie TikToka',15000);
+    const hourControl=await wait(()=>timeOption('.tiktok-timepicker-left',hour,'godzina'),'godzina '+hour+' w harmonogramie TikToka',15000);
     hourControl.scrollIntoView?.({block:'nearest'});
     click(hourControl);
     await wait(()=>{const picker=timepicker();return fields()?.time.value.split(':')[0]===hour||picker&&all('.tiktok-timepicker-left.tiktok-timepicker-is-active',picker).some(e=>norm(e.textContent)===hour);},'potwierdzenie godziny TikToka',15000);
    }
    if(fields()?.time.value!==target.time){
-    const minuteControl=await wait(()=>{const picker=timepicker();return picker&&one(all('.tiktok-timepicker-right',picker).filter(e=>norm(e.textContent)===minute&&enabled(e)));},'minuta '+minute+' w harmonogramie TikToka',15000);
+    const minuteControl=await wait(()=>timeOption('.tiktok-timepicker-right',minute,'minuta'),'minuta '+minute+' w harmonogramie TikToka',15000);
     minuteControl.scrollIntoView?.({block:'nearest'});
     click(minuteControl);
    }
@@ -88,7 +94,9 @@
   }
   await wait(()=>scheduleSelected()&&fields()&&button(),'aktywny harmonogram i przycisk Zaplanuj TikToka',30000);
   for(let attempt=0;attempt<3;attempt++){
-   const target=schedule.earliestSchedule(Date.now()+2000);
+   // Even a two-second buffer can skip a valid five-minute slot. Account for
+   // actual elapsed time in the readback below instead of adding a delay here.
+   const target=schedule.earliestSchedule(Date.now());
    await chooseDate(target);
    await chooseTime(target);
    const result=await wait(()=>{
@@ -99,7 +107,15 @@
    const actual=schedule.readSchedule(result.date,result.time),remaining=actual.timestamp-Date.now();
    if(remaining<15*MINUTE||remaining>20*MINUTE+5000)continue;
    if(actual.timestamp!==target.timestamp||actual.timezoneOffset!==target.timezoneOffset)throw new Error('Strefa czasowa harmonogramu TikToka zmieniła się. Wysyłka zatrzymana.');
-   return {button:result.button,proof:{scheduleConfirmed:true,scheduleDate:actual.date,scheduleTime:actual.time,scheduledAt:actual.timestamp,scheduleTimezoneOffset:actual.timezoneOffset}};
+   const resolveButton=()=>{
+    const value=fields();
+    if(!scheduleSelected()||!value||value.date.getAttribute('aria-invalid')==='true'||value.time.getAttribute('aria-invalid')==='true'||value.date.value!==actual.date||value.time.value!==actual.time)throw new Error('Harmonogram TikToka zmienił się przed zatwierdzeniem.');
+    const current=schedule.readSchedule(value.date.value,value.time.value);
+    if(current.timestamp!==actual.timestamp||current.timezoneOffset!==actual.timezoneOffset)throw new Error('Strefa czasowa harmonogramu TikToka zmieniła się.');
+    if(current.timestamp-Date.now()<15*MINUTE){const error=new Error('Wybrany termin TikToka jest już zbyt bliski. Ponów przygotowanie harmonogramu.');error.code='TIKTOK_SCHEDULE_EXPIRED';throw error;}
+    return button();
+   };
+   return {button:result.button,resolveButton,proof:{scheduleConfirmed:true,scheduleDate:actual.date,scheduleTime:actual.time,scheduledAt:actual.timestamp,scheduleTimezoneOffset:actual.timezoneOffset}};
   }
   throw new Error('Nie potwierdzono terminu TikToka za co najmniej 15 minut. Ponów przygotowanie harmonogramu.');
  }

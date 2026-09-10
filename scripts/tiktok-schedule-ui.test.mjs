@@ -44,13 +44,15 @@ async function fixture(options={}){
   by('popup').innerHTML='<div class="tiktok-timepicker-time-picker-container"><div id="hours"></div><div id="minutes"></div></div>';
   for(let value=0;value<24;value++){
    const span=document.createElement('span');span.className='tiktok-timepicker-left'+(pad(value)===selectedHour?' tiktok-timepicker-is-active':'');span.textContent=pad(value);by('hours').append(span);
+   if(span.textContent===options.disabledHour)span.setAttribute('aria-disabled','true');
    span.addEventListener('click',()=>{if(!span.isConnected)state.detachedClicks++;state.hourClicks.push(span.textContent);mutateFields({time:span.textContent+':'+state.time.split(':')[1]},mountTimepicker);});
   }
   for(let value=0;value<60;value+=5){
    const span=document.createElement('span');span.className='tiktok-timepicker-right'+(pad(value)===selectedMinute?' tiktok-timepicker-is-active':'');span.textContent=pad(value);by('minutes').append(span);
+   if(span.textContent===options.disabledMinute)span.setAttribute('aria-disabled','true');
    span.addEventListener('click',()=>{
     if(!span.isConnected)state.detachedClicks++;state.minuteClicks.push(span.textContent);
-    if(options.advanceEveryMinute||options.advanceAfterMinute&&!state.advanced){state.now+=(options.advanceEveryMinute||options.advanceAfterMinute)*60000;state.advanced=true;}
+    if(options.advanceEveryMinute||(options.advanceAfterMinute||options.advanceAfterMinuteMs)&&!state.advanced){state.now+=(options.advanceEveryMinute||options.advanceAfterMinute||0)*60000+(options.advanceAfterMinuteMs||0);state.advanced=true;}
     if(options.switchToNow)radio.checked=false;
     mutateFields({time:state.time.split(':')[0]+':'+span.textContent});
    });
@@ -64,7 +66,7 @@ async function fixture(options={}){
   const weekday=new Date(year,month,1).getDay(),offset=weekday===0&&options.leadingSunday?7:weekday;
   for(let index=0;index<42;index++){
    const date=new Date(year,month,1-offset+index),value=dateText(date),day=document.createElement('span');
-   const allowed=!options.disableAdjacent||date.getMonth()===month;
+   const allowed=(!options.disableAdjacent||date.getMonth()===month)&&value!==options.unavailableDate;
    day.className='day'+(allowed?' valid':'')+(value===state.date?' selected':'');day.textContent=String(date.getDate());all('.days-wrapper')[0].append(day);
    day.addEventListener('click',()=>{assert.ok(allowed,'invalid calendar days cannot be selected');state.dayClicks.push(value);mutateFields({date:value});});
   }
@@ -81,6 +83,9 @@ async function fixture(options={}){
  const result=await task;
  assert.equal(result.button,by('publish'));assert.equal(state.publishClicks,0);assert.equal(state.readonlyWrites,0);assert.equal(state.detachedClicks,0);
  context.UplowWorkSchedule.assertScheduleProof({tiktokSchedule:'auto15'},{platform:'tiktok'},result.proof,state.now);
+ assert.equal(result.resolveButton(),by('publish'));
+ if(options.afterPrepare)await options.afterPrepare({result,state,document,by,radio,mountFields});
+ assert.equal(state.publishClicks,0);assert.equal(state.readonlyWrites,0);assert.equal(state.detachedClicks,0);
  return {...state,proof:JSON.parse(JSON.stringify(result.proof))};
 }
 
@@ -89,14 +94,28 @@ test('keeps the already earliest slot and never clicks the final Schedule button
  assert.equal(state.proof.scheduleDate,'2026-09-10');assert.equal(state.proof.scheduleTime,'18:20');
  assert.equal(state.radioClicks,0);assert.equal(state.dateClicks,0);assert.equal(state.timeClicks,0);
 });
+test('keeps 10:20 at 10:04:59 instead of skipping a valid slot because of an artificial buffer',async()=>{
+ const existing=await fixture({now:'2026-09-10T10:04:59',time:'10:20',checked:true});
+ assert.equal(existing.proof.scheduleTime,'10:20');assert.equal(existing.timeClicks,0);
+ const selected=await fixture({now:'2026-09-10T10:04:59',time:'10:00',advanceAfterMinuteMs:500,remount:true});
+ assert.equal(selected.proof.scheduleTime,'10:20');assert.deepEqual(selected.minuteClicks,['20']);
+ assert.equal(selected.proof.scheduledAt-selected.now,15*60000+500);
+});
+test('keeps an exact 15-minute slot and recalculates only if actual selection time crosses its minimum',async()=>{
+ const exact=await fixture({now:'2026-09-10T10:05:00',time:'10:20',checked:true});
+ assert.equal(exact.proof.scheduleTime,'10:20');assert.equal(exact.proof.scheduledAt-exact.now,15*60000);assert.equal(exact.timeClicks,0);
+ const elapsed=await fixture({now:'2026-09-10T10:05:00',time:'10:00',advanceAfterMinuteMs:1,remount:true});
+ assert.equal(elapsed.proof.scheduleTime,'10:25');assert.deepEqual(elapsed.minuteClicks,['20','25']);
+ assert.equal(elapsed.proof.scheduledAt-elapsed.now,20*60000-1);
+});
 test('selects midnight across a month boundary using the valid adjacent calendar day',async()=>{
  const state=await fixture({now:'2026-09-30T23:50:00',date:'2026-09-30',time:'23:55',remount:true});
- assert.equal(state.proof.scheduleDate,'2026-10-01');assert.equal(state.proof.scheduleTime,'00:10');
- assert.deepEqual(state.dayClicks,['2026-10-01']);assert.deepEqual(state.hourClicks,['00']);assert.deepEqual(state.minuteClicks,['10']);assert.equal(state.arrowClicks,0);
+ assert.equal(state.proof.scheduleDate,'2026-10-01');assert.equal(state.proof.scheduleTime,'00:05');
+ assert.deepEqual(state.dayClicks,['2026-10-01']);assert.deepEqual(state.hourClicks,['00']);assert.deepEqual(state.minuteClicks,['05']);assert.equal(state.arrowClicks,0);
 });
 test('navigates December to January and reacquires all asynchronously replaced inputs and options',async()=>{
  const state=await fixture({now:'2026-12-31T23:50:00',date:'2026-12-31',time:'23:55',english:true,disableAdjacent:true,remount:true});
- assert.equal(state.proof.scheduleDate,'2027-01-01');assert.equal(state.proof.scheduleTime,'00:10');
+ assert.equal(state.proof.scheduleDate,'2027-01-01');assert.equal(state.proof.scheduleTime,'00:05');
  assert.deepEqual(state.dayClicks,['2027-01-01']);assert.equal(state.arrowClicks,1);
 });
 test('maps a Sunday-start month with a complete preceding week without selecting the wrong day',async()=>{
@@ -105,7 +124,7 @@ test('maps a Sunday-start month with a complete preceding week without selecting
 });
 test('recalculates when widget latency makes the first chosen slot less than 15 minutes away',async()=>{
  const state=await fixture({now:'2026-09-10T10:03:00',time:'10:00',advanceAfterMinute:7,remount:true});
- assert.equal(state.proof.scheduleTime,'10:30');assert.deepEqual(state.minuteClicks,['20','30']);
+ assert.equal(state.proof.scheduleTime,'10:25');assert.deepEqual(state.minuteClicks,['20','25']);
 });
 test('stops after bounded recalculations instead of accepting a slot that is too close',async()=>{
  const state=await fixture({now:'2026-09-10T10:03:00',time:'10:00',advanceEveryMinute:20,reject:/Nie potwierdzono terminu/});
@@ -113,6 +132,47 @@ test('stops after bounded recalculations instead of accepting a slot that is too
 });
 test('does not confirm a time rejected by the platform even if the final button is enabled',async()=>{
  await fixture({checked:true,invalidTime:true,reject:/końcowe potwierdzenie harmonogramu/});
+});
+test('unavailable earliest hour, minute or date stops instead of choosing an arbitrary later slot',async()=>{
+ const hour=await fixture({now:'2026-09-10T10:04:59',time:'09:00',disabledHour:'10',reject:/godzina 10 jest niedostępna/});
+ assert.equal(hour.hourClicks.length,0);assert.equal(hour.minuteClicks.length,0);
+ const minute=await fixture({now:'2026-09-10T10:04:59',time:'10:00',disabledMinute:'20',reject:/minuta 20 jest niedostępna/});
+ assert.equal(minute.minuteClicks.length,0);
+ const date=await fixture({date:'2026-09-11',unavailableDate:'2026-09-10',reject:/Najbliższa data jest niedostępna/});
+ assert.equal(date.dayClicks.length,0);assert.equal(date.timeClicks,0);
+});
+test('final resolver reacquires the remounted Schedule button and never returns a disabled or missing one',async()=>{
+ await fixture({checked:true,afterPrepare:async({result,state,document,by})=>{
+  const original=result.button,replacement=document.createElement('button');replacement.id='publish';replacement.textContent='Zaplanuj';
+  replacement.addEventListener('click',()=>{state.publishClicks++;});
+  await new Promise(resolve=>setImmediate(resolve));
+  by('publish').replaceWith(replacement);
+  assert.equal(original.isConnected,false);assert.equal(result.resolveButton(),replacement);
+  replacement.disabled=true;assert.equal(result.resolveButton(),null);
+  replacement.disabled=false;replacement.remove();assert.equal(result.resolveButton(),null);
+ }});
+});
+test('final resolver rejects switching to Now or changing the date or time after preparation',async()=>{
+ await fixture({checked:true,afterPrepare:({result,document,radio})=>{
+  radio.checked=false;document.querySelector('[value="now"]').checked=true;
+  assert.throws(()=>result.resolveButton(),/Harmonogram TikToka zmienił się/);
+ }});
+ for(const change of [{date:'2026-09-11'},{time:'18:25'}])await fixture({checked:true,afterPrepare:({result,state,mountFields})=>{
+  Object.assign(state,change);mountFields();
+  assert.throws(()=>result.resolveButton(),/Harmonogram TikToka zmienił się/);
+ }});
+});
+test('final resolver checks both field validation states and requires a real 15-minute minimum',async()=>{
+ for(const index of [0,1])await fixture({checked:true,afterPrepare:({result,document})=>{
+  document.querySelectorAll('.scheduled-picker input')[index].setAttribute('aria-invalid','true');
+  assert.throws(()=>result.resolveButton(),/Harmonogram TikToka zmienił się/);
+ }});
+ await fixture({checked:true,afterPrepare:({result,state,by})=>{
+  state.now=result.proof.scheduledAt-15*60000;
+  assert.equal(result.resolveButton(),by('publish'));
+  state.now++;
+  assert.throws(()=>result.resolveButton(),/termin TikToka jest już zbyt bliski/);
+ }});
 });
 test('missing scheduling feature, cancellation and changing to Now never fall back to immediate posting',async()=>{
  await fixture({missingFeature:true,reject:/opcja Zaplanuj TikToka/});

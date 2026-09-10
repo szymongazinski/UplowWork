@@ -1,7 +1,7 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.7';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.8';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
@@ -102,7 +102,26 @@
   }
   return {options,syntheticConfirmed};
  }
- async function authorize(job,platform,proof,button){await send(job,platform,'PROGRESS',{status:'ready',message:'Sprawdzono opis i ustawienie widoczności.'});if(job.dryRun){await send(job,platform,'CHECK',{proof});const done=new Error('Formularz i ustawienia sprawdzone. Zatrzymano przed publikacją.');done.code='DRY_RUN_COMPLETE';throw done;}await send(job,platform,'COMMIT',{proof});committed=true;if(!enabled(button)||!visible(button))throw new Error('Przycisk publikacji zmienił stan.');click(button);}
+ async function authorize(job,platform,proof,resolveButton){
+  currentStep='Końcowe sprawdzenie formularza '+platform;
+  const ready=()=>{
+   if(cancelled&&!committed)throw new Error('Wysyłka zatrzymana.');
+   const button=typeof resolveButton==='function'?resolveButton():resolveButton;
+   if(!button?.isConnected||!enabled(button)||!visible(button))throw new Error('Przycisk publikacji nie jest gotowy w aktualnym formularzu.');
+   return button;
+  };
+  ready();
+  await send(job,platform,'PROGRESS',{status:'ready',message:'Sprawdzono opis i ustawienie widoczności.'});
+  // React can replace the whole composer while the worker persists progress or
+  // authorizes a send. Resolve the live controls and validate their values after
+  // each round trip. No asynchronous work may separate the final read and click.
+  ready();
+  if(job.dryRun){await send(job,platform,'CHECK',{proof});const done=new Error('Formularz i ustawienia sprawdzone. Zatrzymano przed publikacją.');done.code='DRY_RUN_COMPLETE';throw done;}
+  await send(job,platform,'COMMIT',{proof});committed=true;
+  const button=ready();
+  currentStep=platform==='tiktok'&&job.tiktokSchedule==='auto15'?'Zatwierdzanie harmonogramu TikToka':'Zatwierdzanie publikacji '+platform;
+  click(button);
+ }
  async function tiktok(job){
   await wait(()=>control(/^(Wybierz filmy|Select videos)$/)||document.querySelector('input[type="file"]'),'zalogowanie do TikTok Studio');await attach(job,'tiktok');
   await wait(()=>{const failure=all('[role=alert]').map(e=>norm(e.innerText)).find(t=>/nie udało|błąd|failed|couldn.t|error/i.test(t));if(failure)throw new Error('TikTok odrzucił przesyłanie: '+failure);if(/Something went wrong|Coś poszło nie tak/i.test(text())){const error=new Error('TikTok: Something went wrong — platforma nie przyjęła przesyłania.');error.code='TIKTOK_UPLOAD_REJECTED';throw error;}return /Przesłano|Uploaded/.test(text());},'zakończenie przesyłania TikToka',600000);
@@ -115,11 +134,22 @@
   await wait(()=>expected.test(label(privacy)),'ustawiona widoczność');
   const extra=await extraOptions(job,'tiktok');
   if(job.tiktokSchedule==='auto15'){
-   const {proof,button}=await globalThis.UplowWorkTikTokSchedule.prepare({wait,click,control,all,visible,enabled,checked});
-   const finalCaption=editable('combobox')||editable('textbox')||field(/^(Opis|Description|Caption)/);
-   const finalPrivacy=all('[role="combobox"]').find(e=>expected.test(label(e)));
-   if(!finalCaption||!captionMatches(finalCaption,job.caption)||!finalPrivacy)throw new Error('Opis lub prywatność zmieniły się podczas planowania TikToka.');
-   await authorize(job,'tiktok',{privacy:job.privacy,privacyConfirmed:true,caption:job.caption,...extra,...thumbnail,...proof},button);
+   let proof,finalCaption;
+   for(let attempt=0;attempt<3;attempt++){
+    const prepared=await globalThis.UplowWorkTikTokSchedule.prepare({wait,click,control,all,visible,enabled,checked});proof=prepared.proof;
+    const resolveSchedule=()=>{
+     finalCaption=editable('combobox')||editable('textbox')||field(/^(Opis|Description|Caption)/);
+     const audience=all('[role="combobox"]').find(e=>expected.test(label(e)));
+     if(!finalCaption||!captionMatches(finalCaption,job.caption)||!audience)throw new Error('Opis lub prywatność zmieniły się podczas planowania TikToka.');
+     return prepared.resolveButton();
+    };
+    try{await authorize(job,'tiktok',{privacy:job.privacy,privacyConfirmed:true,caption:job.caption,...extra,...thumbnail,...proof},resolveSchedule);break;}
+    catch(error){
+     // Only an expired slot detected before COMMIT can be prepared again. Once
+     // submission was authorized, never repeat it or switch to immediate Post.
+     if(error.code!=='TIKTOK_SCHEDULE_EXPIRED'||committed||attempt===2)throw error;
+    }
+   }
    const accepted=await wait(()=>{
     if(/Something went wrong|Coś poszło nie tak/i.test(text()))throw new Error('TikTok zwrócił błąd przy zapisie harmonogramu. Sprawdź listę zaplanowanych filmów przed ponowieniem.');
     if(all('[role="alert"],[role="status"]').some(e=>!e.contains(finalCaption)&&/Your (?:video|post) has been scheduled|(?:Video|Post) scheduled|Film został zaplanowany|Post został zaplanowany|Zaplanowano (?:film|post)/i.test(norm(e.innerText))))return 'confirmed';
@@ -176,10 +206,17 @@
   const finalAudience=await wait(()=>all('button,[role="button"]').find(e=>expected.test(label(e))),'potwierdzenie widoczności Facebooka');
   let syntheticConfirmed=!job.synthetic;
   if(job.synthetic){const ai=control(/^(Dodaj etykietę SI|Add AI label)$/,'switch');if(!ai)throw new Error('Nie znaleziono oznaczenia AI.');if(!checked(ai))click(ai);syntheticConfirmed=!!await wait(()=>checked(ai),'oznaczenie AI');}
-  const publish=await wait(()=>{const e=control(/^(Opublikuj|Publish)$/);return enabled(e)&&e;},'gotowy film',600000);
+  await wait(()=>{const e=control(/^(Opublikuj|Publish)$/);return enabled(e)&&e;},'gotowy film',600000);
   if(!expected.test(label(finalAudience))||!captionMatches(caption,job.caption))throw new Error('Nie potwierdzono opisu lub widoczności.');
   if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/))throw new Error('Zamknięto kreator rolki. Publikacja zatrzymana.');
-  await authorize(job,'facebook',{mediaKind:'reel',...thumbnail,privacy:job.privacy,privacyConfirmed:true,caption:job.caption,syntheticConfirmed},publish);
+  const resolvePublish=()=>{
+   if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/))throw new Error('Zamknięto kreator rolki. Publikacja zatrzymana.');
+   const audience=all('button,[role="button"]').find(e=>expected.test(label(e))),description=editable();
+   if(!audience||!description||!captionMatches(description,job.caption))throw new Error('Opis lub widoczność rolki Facebooka zmieniły się przed publikacją.');
+   if(job.synthetic&&!checked(control(/^(Dodaj etykietę SI|Add AI label)$/,'switch')))throw new Error('Oznaczenie AI rolki Facebooka zmieniło się.');
+   return control(/^(Opublikuj|Publish)$/);
+  };
+  await authorize(job,'facebook',{mediaKind:'reel',...thumbnail,privacy:job.privacy,privacyConfirmed:true,caption:job.caption,syntheticConfirmed},resolvePublish);
   await wait(()=>/Post został udostępniony|Your post has been shared|Trwa przetwarzanie rolki|Your reel is processing/.test(text()),'potwierdzenie Facebooka',120000);
   return {status:'submitted',message:job.privacy==='private'?'Facebook potwierdził wysłanie z ustawieniem Tylko ja. Rolka może jeszcze być przetwarzana.':'Facebook przyjął rolkę do przetwarzania.',url:profile};
  }
@@ -237,10 +274,18 @@
   // Public posting is allowed only after an explicit public audience disclosure.
   const composer=globalThis.UplowWorkDOM.instagramComposer();
   const publicProof=!!composer&&/każdy będzie mógł ją zobaczyć|anyone can see|everyone can see/i.test(norm(composer.innerText));if(!publicProof)throw new Error('Nie potwierdzono publicznej widoczności rolki.');
-  const share=await wait(()=>{const e=control(/^(Udostępnij|Share)$/,'button',composer);return enabled(e)&&e;},'gotowość rolki');
+  await wait(()=>{const current=globalThis.UplowWorkDOM.instagramComposer();const e=current&&control(/^(Udostępnij|Share)$/,'button',current);return enabled(e)&&e;},'gotowość rolki');
   await wait(()=>globalThis.UplowWorkDOM.instagramUncroppedPreview(job.meta),'oryginalny kadr w gotowej rolce Instagrama',15000);
   const finalCaption=globalThis.UplowWorkDOM.instagramCaption();
-  if(!finalCaption||!captionMatches(finalCaption,job.caption))throw new Error('Nie potwierdzono opisu.');await authorize(job,'instagram',{privacy:'public',privacyConfirmed:publicProof,caption:job.caption,...extra,...thumbnail,...aspect},share);
+  if(!finalCaption||!captionMatches(finalCaption,job.caption))throw new Error('Nie potwierdzono opisu.');
+  const resolveShare=()=>{
+   const dom=globalThis.UplowWorkDOM,current=dom.instagramComposer(),description=dom.instagramCaption();
+   if(!current||!description||!captionMatches(description,job.caption))throw new Error('Opis lub formularz Instagrama zmienił się przed udostępnieniem.');
+   if(!/każdy będzie mógł ją zobaczyć|anyone can see|everyone can see/i.test(norm(current.innerText)))throw new Error('Nie potwierdzono publicznej widoczności rolki.');
+   if(!dom.instagramUncroppedPreview(job.meta))throw new Error('Kadr rolki Instagrama zmienił się przed udostępnieniem.');
+   return control(/^(Udostępnij|Share)$/,'button',current);
+  };
+  await authorize(job,'instagram',{privacy:'public',privacyConfirmed:publicProof,caption:job.caption,...extra,...thumbnail,...aspect},resolveShare);
   await wait(()=>/Twoja rolka została udostępniona|Twój post został udostępniony|Your reel has been shared|Your post has been shared/.test(text()),'potwierdzenie Instagrama',120000);return {status:'published',message:'Instagram potwierdził udostępnienie rolki.'};
  }
  async function probe(platform){let result={connected:false,label:platform==='instagram'?'Nie wykryto przycisku tworzenia posta. Otwórz Instagram, sprawdź logowanie i kliknij Sprawdź.':'Zaloguj się w otwartej karcie, następnie kliknij Sprawdź.'};try{await wait(()=>{if(platform==='tiktok')return control(/^(Wybierz filmy|Select videos)$/);if(platform==='facebook')return control(/^(Menu Facebooka|Facebook menu)$/);if(platform==='instagram')return globalThis.UplowWorkDOM.instagramCreate();return control(/^(Prześlij filmy|Upload videos)$/)||control(/^(Utwórz|Create)$/);},'sesja',12000);let name='Zalogowano · '+({facebook:'Facebook',instagram:'Instagram',youtube:'YouTube Studio',tiktok:'TikTok Studio'}[platform]);if(platform==='facebook'){const a=all('a').find(e=>/^Oś czasu |^Timeline /.test(label(e)));if(a)name=label(a).replace(/^Oś czasu |^Timeline /,'');}if(platform==='instagram')name='Zalogowano · Instagram';result={connected:true,label:name};}catch{}return result;}

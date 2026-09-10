@@ -13,18 +13,35 @@ const scheduleUI=readFileSync(new URL('../extension/tiktok-schedule-ui.js',impor
 
 async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  const {document,window}=parseHTML('<html><body></body></html>');
- window.HTMLElement.prototype.getClientRects=function(){return this.hasAttribute('hidden')?[]:[{}];};
+ window.HTMLElement.prototype.getClientRects=function(){return !this.isConnected||this.hasAttribute('hidden')?[]:[{}];};
  window.HTMLElement.prototype.focus=function(){};window.HTMLElement.prototype.scrollIntoView=function(){};
  Object.defineProperty(window.HTMLElement.prototype,'isContentEditable',{get(){return this.getAttribute('contenteditable')==='true';}});
  let selected;document.createRange=()=>({selectNodeContents(e){selected=e;}});window.getSelection=()=>({removeAllRanges(){},addRange(){}});document.execCommand=(cmd,ui,value)=>{selected.replaceChildren(...String(value).split('\n').flatMap((line,i)=>i?[document.createElement('br'),document.createTextNode(line)]:[document.createTextNode(line)]));return true;};
  const put=html=>{document.body.innerHTML=html;};const by=id=>document.getElementById(id);
- let publishClicks=0,changes=0,detachedChanges=0,createClicks=0,originalClicks=0,pointerDown=false,receive,finish;const messages=[],deliveredFiles=[];
+ let publishClicks=0,detachedPublishClicks=0,publishReplacements=0,composerReplacements=0,clockJumps=0,scheduleActivations=0,changes=0,detachedChanges=0,createClicks=0,originalClicks=0,pointerDown=false,receive,finish;const messages=[],deliveredFiles=[],scheduledTimes=[];
  const finished=new Promise(resolve=>{finish=resolve;});const bytes=Buffer.from('verified video bytes');
  const digest=Buffer.from(await webcrypto.subtle.digest('SHA-256',bytes)).toString('hex');
  const job={id:'offline-fixture',attemptId:'attempt',dryRun,filename:'fixture.mp4',mime:'video/mp4',lastModified:1700000000000,size:bytes.length,caption:scenario.caption||'Opis testowy',title:'Film',privacy:'public',kids:false,options:scenario.options||{},meta:scenario.meta||{width:720,height:1280,duration:6},digest};
  if(scenario.schedule)job.tiktokSchedule='auto15';
  const wireFile=next=>{const input=by('file');input.addEventListener('input',()=>{changes++;});input.addEventListener('change',()=>{if(!input.isConnected){detachedChanges++;return;}changes++;deliveredFiles.push(...input.files);next();});};
- const wirePublish=()=>by('publish').addEventListener('click',()=>{publishClicks++;put(platform==='facebook'?'Your reel is processing':platform==='tiktok'?'<div role="status">Your video has been scheduled</div>':'Your reel has been shared');});
+ const wirePublish=()=>{const button=by('publish');button.addEventListener('click',()=>{if(!button.isConnected){detachedPublishClicks++;return;}publishClicks++;put(platform==='facebook'?'Your reel is processing':platform==='tiktok'?'<div role="status">Your video has been scheduled</div>':'Your reel has been shared');});};
+ const mutateFinalForm=boundary=>{
+  if(scenario.expireScheduleOn===boundary&&!clockJumps){
+   const current=context.UplowWorkSchedule.readSchedule(by('schedule-date').value,by('schedule-time').value);
+   clock=current.timestamp-15*60000+1-clockBase;clockJumps++;
+  }
+  if(scenario.replaceComposerOn===boundary){
+   const previous=by('publish').closest('[role="dialog"]'),previousVideo=by('final-video'),replacement=previous.cloneNode(true);
+   previous.replaceWith(replacement);assert.equal(previous.isConnected,false);composerReplacements++;
+   by('final-video').videoWidth=previousVideo.videoWidth;by('final-video').videoHeight=previousVideo.videoHeight;by('final-video').getBoundingClientRect=previousVideo.getBoundingClientRect;wirePublish();
+  }
+  if(scenario.replacePublishOn===boundary||scenario.replacePublishOn==='both'){
+   const previous=by('publish');assert.ok(previous,'final button exists at '+boundary);previous.replaceWith(previous.cloneNode(true));assert.equal(previous.isConnected,false);publishReplacements++;wirePublish();
+  }
+  if(scenario.changeCaptionOn===boundary)by('caption').textContent='Inny opis zmieniony podczas zatwierdzania';
+  if(scenario.changeDisclosureOn===boundary)by('public-disclosure').textContent='Only your followers can see this reel.';
+  if(scenario.changeCropOn===boundary)by('final-video').getBoundingClientRect=()=>({left:0,top:0,right:320,bottom:320,width:320,height:320});
+ };
  const caption='<div id="caption" role="textbox" contenteditable="true" aria-label="Dodaj opis..."></div>';
  const fbSettings=()=>{
   put('<div role="dialog" aria-label="Ustawienia rolki"><h2>Ustawienia rolki</h2>'+caption+'<button id="audience">Znajomi Twoi znajomi na Facebooku</button><button id="publish">Opublikuj</button></div>');
@@ -42,8 +59,14 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
   if(scenario.schedule){
    const radio=document.createElement('input');radio.type='radio';radio.name='postSchedule';radio.value='schedule';radio.setAttribute('aria-checked','false');document.body.append(radio);
    radio.addEventListener('click',()=>{
-    radio.setAttribute('aria-checked','true');by('publish').textContent='Schedule';
-    const slot=context.UplowWorkSchedule.earliestSchedule(FastDate.now()+2000),picker=document.createElement('div');picker.className='scheduled-picker';picker.innerHTML='<input readonly value="'+slot.time+'"><input readonly value="'+slot.date+'">';document.body.append(picker);
+    scheduleActivations++;radio.setAttribute('aria-checked','true');by('publish').textContent='Schedule';
+    const slot=context.UplowWorkSchedule.earliestSchedule(FastDate.now()),picker=document.createElement('div');picker.className='scheduled-picker';picker.innerHTML='<input id="schedule-time" readonly value="'+slot.time+'"><input id="schedule-date" readonly value="'+slot.date+'">';document.body.append(picker);scheduledTimes.push(slot.timestamp);
+    by('schedule-time').addEventListener('click',()=>{
+     const menu=document.createElement('div');menu.className='tiktok-timepicker-time-picker-container';
+     for(let hour=0;hour<24;hour++){const option=document.createElement('button');option.className='tiktok-timepicker-left';option.textContent=String(hour).padStart(2,'0');option.addEventListener('click',()=>{by('schedule-time').value=option.textContent+':'+by('schedule-time').value.split(':')[1];});menu.append(option);}
+     for(let minute=0;minute<60;minute+=5){const option=document.createElement('button');option.className='tiktok-timepicker-right';option.textContent=String(minute).padStart(2,'0');option.addEventListener('click',()=>{by('schedule-time').value=by('schedule-time').value.split(':')[0]+':'+option.textContent;scheduledTimes.push(context.UplowWorkSchedule.readSchedule(by('schedule-date').value,by('schedule-time').value).timestamp);menu.remove();});menu.append(option);}
+     document.body.append(menu);
+    });
    });
   }
  };
@@ -60,7 +83,7 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
    const english=!!scenario.english,title=english?'New reel':'Nowa rolka';
    const captionField=english?'<div id="caption" role="textbox" contenteditable="true" '+(scenario.captionAttribute||'aria-label')+'="Add a caption..."></div>':caption;
    const disclosure=scenario.noPublicDisclosure?'Your reel will be shared with your followers.':english?'Your reel will be shared with your followers in their feeds and can be seen on your profile. It may also appear in places such as Reels, where anyone can see it.':'Każdy będzie mógł ją zobaczyć';
-   put((scenario.backgroundCaption?'<div role="textbox" contenteditable="true" aria-label="Add a caption...">Background draft</div>':'')+(scenario.noPublicDisclosure?'<p>Anyone can see public reels</p>':'')+'<div role="dialog" aria-label="'+title+'"><h1>'+title+'</h1><video id="final-video"></video>'+captionField+'<button id="advanced">'+(english?'Advanced Settings':'Ustawienia zaawansowane')+'</button><div id="options"></div><p>'+disclosure+'</p><button id="publish">'+(english?'Share':'Udostępnij')+'</button></div>');
+   put((scenario.backgroundCaption?'<div role="textbox" contenteditable="true" aria-label="Add a caption...">Background draft</div>':'')+(scenario.noPublicDisclosure?'<p>Anyone can see public reels</p>':'')+'<div role="dialog" aria-label="'+title+'"><h1>'+title+'</h1><video id="final-video"></video>'+captionField+'<button id="advanced">'+(english?'Advanced Settings':'Ustawienia zaawansowane')+'</button><div id="options"></div><p id="public-disclosure">'+disclosure+'</p><button id="publish">'+(english?'Share':'Udostępnij')+'</button></div>');
    by('final-video').videoWidth=job.meta.width;by('final-video').videoHeight=job.meta.height;by('final-video').getBoundingClientRect=()=>{const width=320,height=scenario.finalSquare?320:320*job.meta.height/job.meta.width;return {left:0,top:0,right:width,bottom:height,width,height};};
    by('advanced').addEventListener('click',()=>{
     by('options').innerHTML='<button role="switch" aria-checked="true" id="comments">Turn off commenting</button><button role="switch" aria-checked="true" id="likes">Hide like and view counts on this post</button>';
@@ -86,18 +109,19 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
    if(scenario.submenuRole){const post=document.createElement('a');post.setAttribute('role',scenario.submenuRole);post.textContent='Post';document.body.append(post);post.addEventListener('click',openCreator);}else openCreator();
   });
  }
- let clock=0;const clockBase=Date.now();class FastDate extends Date{static now(){return clockBase+(clock+=scenario.schedule?1:1000);}}
+ let clock=0;const clockBase=scenario.clockBase??Date.now();class FastDate extends Date{static now(){return clockBase+(clock+=scenario.schedule?1:1000);}}
  class Transfer{constructor(){this.files=[];this.items={add:f=>this.files.push(f)};}}
  const context={document,window,File,DataTransfer:Transfer,Event:window.Event,MouseEvent:window.Event,PointerEvent:window.Event,HTMLTextAreaElement:window.HTMLTextAreaElement,HTMLInputElement:window.HTMLInputElement,Date:FastDate,getComputedStyle:()=>({visibility:'visible'}),crypto:webcrypto,Uint8Array,atob:s=>Buffer.from(s,'base64').toString('binary'),setTimeout:(fn,ms)=>setTimeout(fn,Math.min(ms,1)),clearTimeout,setInterval:()=>1,clearInterval(){},location:{pathname:'/'},chrome:{runtime:{id:'fixture',onMessage:{addListener(fn){receive=fn;}},sendMessage:async m=>{
   messages.push(m);if(m.type==='CHUNK'){if(scenario.rerenderUpload)tiktokUpload();return {ok:true,data:(corrupt?Buffer.alloc(bytes.length,1):bytes).toString('base64'),length:bytes.length};}
+  if(m.type==='PROGRESS'&&m.status==='ready')mutateFinalForm('ready');
   if(m.type==='CHECK')assertCommit({...job,dryRun:false},{platform,status:'ready'},m.proof,FastDate.now());
-  if(m.type==='COMMIT')assertCommit(job,{platform,status:'ready'},m.proof,FastDate.now());
+  if(m.type==='COMMIT'){assertCommit(job,{platform,status:'ready'},m.proof,FastDate.now());mutateFinalForm('commit');}
   if(m.type==='FINISH')finish(m);return {ok:true};
  }}}};
  runInNewContext(helper,context);runInNewContext(scheduleModule,context);runInNewContext(scheduleUI,context);runInNewContext(runner,context);
  receive({type:'RUN',job,platform},{id:'fixture'},()=>{});
  const result=await Promise.race([finished,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Runner did not finish fixture')),2000);timer.unref();})]);
- return {result,messages,publishClicks,changes,detachedChanges,createClicks,originalClicks,pointerDown,deliveredFiles};
+ return {result,messages,publishClicks,detachedPublishClicks,publishReplacements,composerReplacements,clockJumps,scheduleActivations,scheduledTimes,changes,detachedChanges,createClicks,originalClicks,pointerDown,deliveredFiles};
 }
 
 test('real Facebook runner selects native Public radio, validates it and stops before publication in test mode',async()=>{
@@ -108,6 +132,49 @@ test('real Facebook runner automatically publishes after confirming Public in no
 });
 test('real Instagram runner opens creator with pointer sequence, uploads once and checks caption without posting',async()=>{
  const r=await flow('instagram');assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.changes,1);assert.equal(r.publishClicks,0);assert.ok(r.messages.some(m=>m.type==='CHECK'));
+});
+
+test('Instagram normal mode confirms the form and presses Share exactly once (offline)',async()=>{
+ const r=await flow('instagram',false,false,{english:true,options:{comments:'on',likeCounts:'show'}});
+ assert.equal(r.result.status,'published',r.result.message);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);assert.ok(!r.messages.some(m=>m.type==='CHECK'));
+});
+
+test('Instagram presses the current Share after React replaces it during ready or COMMIT responses',async()=>{
+ for(const replacePublishOn of ['ready','commit','both']){
+  const r=await flow('instagram',false,false,{english:true,options:{comments:'on',likeCounts:'show'},replacePublishOn});
+  assert.equal(r.result.status,'published',replacePublishOn+': '+r.result.message);assert.equal(r.publishReplacements,replacePublishOn==='both'?2:1);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+ }
+});
+
+test('Instagram validates and shares a replaced whole composer with the same caption, audience and crop',async()=>{
+ const r=await flow('instagram',false,false,{english:true,options:{comments:'on',likeCounts:'show'},replaceComposerOn:'commit'});
+ assert.equal(r.result.status,'published',r.result.message);assert.equal(r.composerReplacements,1);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+});
+
+test('Instagram never shares a replaced composer whose public disclosure or crop changed during COMMIT',async()=>{
+ for(const mutation of ['changeDisclosureOn','changeCropOn']){
+  const r=await flow('instagram',false,false,{english:true,replaceComposerOn:'commit',[mutation]:'commit'});
+  assert.equal(r.result.status,'unknown',r.result.message);assert.equal(r.composerReplacements,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+ }
+});
+
+test('Facebook presses the current final Publish after replacement during COMMIT (offline)',async()=>{
+ const r=await flow('facebook',false,false,{replacePublishOn:'commit'});
+ assert.equal(r.result.status,'submitted',r.result.message);assert.equal(r.publishReplacements,1);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+});
+
+test('Instagram rejects a changed caption across the ready or COMMIT boundary without pressing Share',async()=>{
+ for(const changeCaptionOn of ['ready','commit']){
+  for(const replacePublishOn of [undefined,changeCaptionOn]){
+   const r=await flow('instagram',false,false,{english:true,changeCaptionOn,replacePublishOn});
+   assert.equal(r.result.status,changeCaptionOn==='commit'?'unknown':'blocked',r.result.message);assert.equal(r.publishReplacements,replacePublishOn?1:0);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,changeCaptionOn==='commit'?1:0);
+  }
+ }
+});
+
+test('Instagram dry-run still never clicks final Share when the ready response replaces it',async()=>{
+ const r=await flow('instagram',true,false,{english:true,replacePublishOn:'both'});
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishReplacements,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='CHECK').length,1);assert.ok(!r.messages.some(m=>m.type==='COMMIT'));
 });
 
 test('Instagram fills the English Add a caption field and handles Advanced Settings defaults without publishing',async()=>{
@@ -167,6 +234,27 @@ test('TikTok auto15 prepares the real schedule adapter but dry-run never clicks 
 test('TikTok auto15 commits Schedule once and records explicit scheduled confirmation (offline)',async()=>{
  const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true});assert.equal(r.result.status,'scheduled',r.result.message);assert.equal(r.publishClicks,1);
  const commits=r.messages.filter(m=>m.type==='COMMIT');assert.equal(commits.length,1);assert.equal(r.result.scheduledAt,commits[0].proof.scheduledAt);
+});
+
+test('TikTok selects the next nearest slot after expiry during ready and schedules exactly once',async()=>{
+ const clockBase=new Date(2026,0,15,12,0,0).getTime();
+ const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true,clockBase,expireScheduleOn:'ready'});
+ assert.equal(r.result.status,'scheduled',r.result.message);assert.equal(r.clockJumps,1);assert.equal(r.scheduleActivations,1);assert.equal(r.changes,1);assert.equal(r.scheduledTimes.length,2);
+ assert.equal(r.scheduledTimes[1]-r.scheduledTimes[0],5*60000);assert.equal(r.messages.filter(m=>m.type==='PROGRESS'&&m.status==='ready').length,2);
+ const commits=r.messages.filter(m=>m.type==='COMMIT');assert.equal(commits.length,1);assert.equal(commits[0].proof.scheduledAt,r.scheduledTimes[1]);assert.equal(r.result.scheduledAt,r.scheduledTimes[1]);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);
+});
+
+test('TikTok never reprepares or clicks Schedule when the committed slot expires during COMMIT response',async()=>{
+ const clockBase=new Date(2026,0,15,12,0,0).getTime();
+ const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true,clockBase,expireScheduleOn:'commit'});
+ assert.equal(r.result.status,'unknown',r.result.message);assert.equal(r.result.diagnostic.code,'TIKTOK_SCHEDULE_EXPIRED');assert.equal(r.clockJumps,1);assert.equal(r.scheduleActivations,1);assert.equal(r.scheduledTimes.length,1);
+ assert.equal(r.messages.filter(m=>m.type==='PROGRESS'&&m.status==='ready').length,1);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.changes,1);
+});
+
+test('TikTok clicks the fresh Schedule button once after its replacement during COMMIT',async()=>{
+ const clockBase=new Date(2026,0,15,12,0,0).getTime();
+ const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true,clockBase,replacePublishOn:'commit'});
+ assert.equal(r.result.status,'scheduled',r.result.message);assert.equal(r.publishReplacements,1);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
 });
 
 test('Instagram handles a link or menuitem submenu before selecting a video',async()=>{
