@@ -30,6 +30,38 @@
   const leaves=hits.filter(e=>!hits.some(other=>other!==e&&e.contains(other)));
   return leaves.length===1?leaves[0]:null;
  }
+ function instagramCaption(root=document){
+  const composer=instagramComposer(root);if(!composer)return null;
+  // Instagram currently uses “Add a caption...” in English. Its textarea and
+  // contenteditable variants expose that hint through different attributes.
+  const pattern=/^(Dodaj opis|(?:Write|Add) a caption)(?:\.{3}|…)?$/i;
+  const hits=Array.from(composer.querySelectorAll('textarea,[contenteditable="true"]')).filter(e=>visible(e)&&[
+   e.getAttribute('aria-label'),e.getAttribute('placeholder'),e.getAttribute('data-placeholder'),e.getAttribute('aria-placeholder'),accessibleLabel(e),
+  ].some(name=>pattern.test(norm(name))));
+  return hits.length===1?hits[0]:null;
+ }
+ function instagramUncroppedPreview(meta,root=document){
+  const composer=instagramComposer(root);if(!composer||!meta?.width||!meta?.height)return false;
+  const videos=Array.from(composer.querySelectorAll('video')).filter(visible);if(videos.length!==1)return false;
+  const video=videos[0],ratio=meta.width/meta.height,box=video.getBoundingClientRect(),style=getComputedStyle(video);
+  if(!video.videoWidth||!video.videoHeight||!box.width||!box.height||Math.abs(video.videoWidth/video.videoHeight/ratio-1)>.01)return false;
+  let image={left:box.left,top:box.top,right:box.right,bottom:box.bottom};
+  // A cover/filled square cuts or distorts a portrait even when the underlying
+  // video element still reports the original source dimensions.
+  if(style.objectFit==='contain'||style.objectFit==='scale-down'){
+   const scale=Math.min(box.width/video.videoWidth,box.height/video.videoHeight,style.objectFit==='scale-down'?1:Infinity);
+   const width=video.videoWidth*scale,height=video.videoHeight*scale;
+   const position=(style.objectPosition||'50% 50%').split(/\s+/).map(v=>/^\d+(?:\.\d+)?%$/.test(v)?parseFloat(v)/100:NaN);
+   if(position.length!==2||position.some(v=>!Number.isFinite(v)))return false;
+   image.left=box.left+(box.width-width)*position[0];image.top=box.top+(box.height-height)*position[1];image.right=image.left+width;image.bottom=image.top+height;
+  }else if(Math.abs(box.width/box.height/ratio-1)>.01)return false;
+  for(let parent=video.parentElement;parent;parent=parent.parentElement){
+   const parentStyle=getComputedStyle(parent),clipX=/^(hidden|clip|auto|scroll)$/.test(parentStyle.overflowX||parentStyle.overflow||''),clipY=/^(hidden|clip|auto|scroll)$/.test(parentStyle.overflowY||parentStyle.overflow||'');
+   if(clipX||clipY){const bounds=parent.getBoundingClientRect();if(clipX&&(image.left<bounds.left-2||image.right>bounds.right+2)||clipY&&(image.top<bounds.top-2||image.bottom>bounds.bottom+2))return false;}
+   if(parent===composer)break;
+  }
+  return true;
+ }
  function videoInput(platform,root=document){
   const accepts=e=>!e.disabled&&/video|mp4|mov|webm/i.test(e.getAttribute('accept')||'');
   if(platform==='facebook'){
@@ -47,5 +79,5 @@
   return inputs.length===1?inputs[0]:null;
  }
  function facebookReelStage(stage,root=document){return Array.from(root.querySelectorAll('h1,h2,[role="heading"]')).some(e=>visible(e)&&stage.test(norm(e.innerText||e.textContent)));}
- globalThis.UplowWorkDOM={names,accessibleLabel,roleControls,instagramCreate,instagramComposer,instagramPost,videoInput,facebookReelStage};
+ globalThis.UplowWorkDOM={names,accessibleLabel,roleControls,instagramCreate,instagramComposer,instagramPost,instagramCaption,instagramUncroppedPreview,videoInput,facebookReelStage};
 })();

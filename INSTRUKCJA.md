@@ -21,3 +21,5 @@ Status: wersja eksperymentalna. Formularze prywatnego przesyłania były sprawdz
 Domyślnie wybrane są wszystkie platformy i widoczność publiczna, film nie dla dzieci, komentarze włączone, widoczna liczba polubień, brak płatnej promocji oraz dozwolone osadzanie na YouTube. Samo połączenie konta nie publikuje filmu.
 
 Po podmianie plików rozszerzenia kliknij jego przycisk odświeżenia w `chrome://extensions`, a następnie otwórz nowy panel z ikony UplowWork. Samo skopiowanie plików nie przeładowuje działającego rozszerzenia.
+
+Instagram automatycznie zachowuje oryginalne proporcje filmu. TikTok po zakończeniu przygotowania wybiera najbliższy dostępny termin za co najmniej 15 minut (krok 5 minut); nie musisz wpisywać daty ani godziny. Test bez publikacji nie zatwierdza tego harmonogramu.

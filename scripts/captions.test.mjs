@@ -30,8 +30,8 @@ test('enforces total caption length including separator and hashtags',()=>{
  assert.throws(()=>validateRequest(request),/2200/);
 });
 test('commit checks the exact compiled caption for its platform, including empty line',()=>{
- const plans=captionPlans('Opis','#a #b #c #d #e #f');const job={caption:'Opis',privacy:'public',captions:Object.fromEntries(Object.entries(plans).map(([p,v])=>[p,v.text]))};
- const target={platform:'instagram',status:'ready'},proof={privacy:'public',privacyConfirmed:true,caption:job.captions.instagram};
+ const plans=captionPlans('Opis','#a #b #c #d #e #f');const job={caption:'Opis',privacy:'public',meta:{width:720,height:1280},captions:Object.fromEntries(Object.entries(plans).map(([p,v])=>[p,v.text]))};
+ const target={platform:'instagram',status:'ready'},proof={privacy:'public',privacyConfirmed:true,caption:job.captions.instagram,aspectRatioConfirmed:true,sourceWidth:720,sourceHeight:1280};
  assert.doesNotThrow(()=>assertCommit(job,target,proof));assert.throws(()=>assertCommit(job,target,{...proof,caption:job.captions.facebook}));assert.throws(()=>assertCommit(job,target,{...proof,caption:proof.caption.replace('\n\n',' ')}));
 });
 test('deduplication compares the caption actually sent, including compatibility with old jobs',async()=>{

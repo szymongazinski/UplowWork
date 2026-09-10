@@ -1,7 +1,7 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.6';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.7';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
@@ -76,7 +76,7 @@
   const needs=job.synthetic||Object.values(requested).some(v=>v!=='default');
   if(platform==='tiktok'&&needs){const more=exactText(/^(Pokaż więcej|Show more)$/);if(more)click(more);}
   if(platform==='youtube'&&needs){const more=control(/^(Pokaż więcej|Show more|Pokaż ustawienia zaawansowane)$/);if(more)click(more);}
-  if(platform==='instagram'&&(requested.comments&&requested.comments!=='default'||requested.likeCounts&&requested.likeCounts!=='default')){await press(/^(Ustawienia zaawansowane|Advanced settings)$/);}
+  if(platform==='instagram'&&(requested.comments&&requested.comments!=='default'||requested.likeCounts&&requested.likeCounts!=='default')){await press(/^(Ustawienia zaawansowane|Advanced settings)$/i,'button',globalThis.UplowWorkDOM.instagramComposer());}
   if(requested.comments&&requested.comments!=='default'&&['tiktok','instagram','youtube'].includes(platform)){
    let value=requested.comments;
    if(platform==='youtube'&&job.kids)value='off';
@@ -114,6 +114,21 @@
   const expected=job.privacy==='private'?/^(Tylko Ty|Only you)$/:/^(Wszyscy|Everyone)$/;
   await wait(()=>expected.test(label(privacy)),'ustawiona widoczność');
   const extra=await extraOptions(job,'tiktok');
+  if(job.tiktokSchedule==='auto15'){
+   const {proof,button}=await globalThis.UplowWorkTikTokSchedule.prepare({wait,click,control,all,visible,enabled,checked});
+   const finalCaption=editable('combobox')||editable('textbox')||field(/^(Opis|Description|Caption)/);
+   const finalPrivacy=all('[role="combobox"]').find(e=>expected.test(label(e)));
+   if(!finalCaption||!captionMatches(finalCaption,job.caption)||!finalPrivacy)throw new Error('Opis lub prywatność zmieniły się podczas planowania TikToka.');
+   await authorize(job,'tiktok',{privacy:job.privacy,privacyConfirmed:true,caption:job.caption,...extra,...thumbnail,...proof},button);
+   const accepted=await wait(()=>{
+    if(/Something went wrong|Coś poszło nie tak/i.test(text()))throw new Error('TikTok zwrócił błąd przy zapisie harmonogramu. Sprawdź listę zaplanowanych filmów przed ponowieniem.');
+    if(all('[role="alert"],[role="status"]').some(e=>!e.contains(finalCaption)&&/Your (?:video|post) has been scheduled|(?:Video|Post) scheduled|Film został zaplanowany|Post został zaplanowany|Zaplanowano (?:film|post)/i.test(norm(e.innerText))))return 'confirmed';
+    return /\/tiktokstudio\/content/.test(location.pathname)?'list':null;
+   },'potwierdzenie harmonogramu TikToka',120000);
+   const when=proof.scheduleDate+' '+proof.scheduleTime;
+   if(accepted==='confirmed')return {status:'scheduled',scheduledAt:proof.scheduledAt,message:'TikTok potwierdził zaplanowanie na '+when+'.',url:location.href};
+   return {status:'submitted',message:'Wysłano harmonogram na '+when+'. Otwórz listę TikToka i sprawdź zaplanowany film.',url:location.href};
+  }
   const publish=await wait(()=>{const e=control(/^(Opublikuj|Post)$/);return enabled(e)&&e;},'gotowość do publikacji',600000);
   if(!captionMatches(caption,job.caption)||!expected.test(label(privacy)))throw new Error('Opis lub prywatność uległy zmianie.');
   await authorize(job,'tiktok',{privacy:job.privacy,privacyConfirmed:true,caption:job.caption,...extra,...thumbnail},publish);
@@ -168,6 +183,26 @@
   await wait(()=>/Post został udostępniony|Your post has been shared|Trwa przetwarzanie rolki|Your reel is processing/.test(text()),'potwierdzenie Facebooka',120000);
   return {status:'submitted',message:job.privacy==='private'?'Facebook potwierdził wysłanie z ustawieniem Tylko ja. Rolka może jeszcze być przetwarzana.':'Facebook przyjął rolkę do przetwarzania.',url:profile};
  }
+ async function instagramCrop(job){
+  const dom=globalThis.UplowWorkDOM,meta=job.meta;
+  if(!meta?.width||!meta?.height)throw new Error('Brak wymiarów filmu. Wybierz plik ponownie, aby zachować cały kadr.');
+  const cropControl=(pattern)=>{
+   const composer=dom.instagramComposer();if(!composer)return null;
+   const hits=all('button,[role="button"],[role="menuitem"],[role="menuitemradio"],[role="radio"]',composer).filter(e=>dom.names(e).some(name=>pattern.test(name)));
+   const leaves=hits.filter(e=>!hits.some(other=>other!==e&&e.contains(other)));return leaves.length===1?leaves[0]:null;
+  };
+  const original=/^(Oryginał|Oryginalne|Original)$/i;
+  const ratio=meta.width/meta.height,ratioNames=['9:16','4:5','1:1','16:9'].filter(value=>{const [w,h]=value.split(':').map(Number);return Math.abs(w/h/ratio-1)<.01;});
+  const matchingRatio=new RegExp('^('+(ratioNames.length?ratioNames.join('|'):'(?!)')+')$');
+  let option=cropControl(original)||cropControl(matchingRatio);
+  if(!option){
+   const picker=cropControl(/^(Wybierz kadrowanie|Wybierz przycięcie|Wybierz proporcje|Wybierz proporcje obrazu|Select crop|Select aspect ratio)$/i);
+   if(picker){click(picker);option=await wait(()=>cropControl(original)||cropControl(matchingRatio),'oryginalne proporcje filmu na Instagramie',15000);}
+  }
+  if(option)click(option);
+  await wait(()=>dom.instagramUncroppedPreview(meta),'cały kadr filmu na Instagramie bez przycięcia do kwadratu',30000);
+  return {aspectRatioConfirmed:true,sourceWidth:meta.width,sourceHeight:meta.height};
+ }
  async function instagram(job){
   if(job.privacy!=='public')return {status:'blocked',message:'Instagram Reels nie ma potwierdzonej opcji Tylko ja. Nic nie wysłano.'};
   step('Otwieranie kreatora Instagrama.');
@@ -193,15 +228,19 @@
    return false;
   },'otwarcie kreatora i wybór filmu na Instagramie',120000);await attach(job,'instagram');
   await wait(()=>control(/^(OK)$/)||/Przytnij|Crop/.test(text()),'kadrowanie');const ok=control('OK');if(ok)click(ok);
+  const aspect=await instagramCrop(job);
   await press(/^(Dalej|Next)$/);await wait(()=>/Edytuj|Edit/.test(text()),'edycja Instagrama');const thumbnail=await cover(job,'instagram');await press(/^(Dalej|Next)$/);
-  const caption=await wait(()=>field(/^(Dodaj opis|Write a caption)/),'opis Instagrama');fill(caption,job.caption);
+  const caption=await wait(()=>globalThis.UplowWorkDOM.instagramCaption(),'opis Instagrama');fill(caption,job.caption);
   // Disable crossposting to avoid a duplicate or a different Facebook audience.
   const fbLabel=exactText(/.+Facebook · (Publiczne|Public|Znajomi|Friends)/);if(fbLabel){let row=fbLabel.parentElement;for(let i=0;i<4&&row;i++,row=row.parentElement){const switches=all('[role="switch"]',row);if(switches.length===1){if(checked(switches[0]))click(switches[0]);await wait(()=>!checked(switches[0]),'wyłączone równoległe udostępnianie na Facebooku');break;}if(i===3)throw new Error('Nie potwierdzono wyłączenia dodatkowego udostępniania na Facebooku.');}}
   const extra=await extraOptions(job,'instagram');
   // Public posting is allowed only after an explicit public audience disclosure.
-  const publicProof=/każdy będzie mógł ją zobaczyć|anyone can see|everyone can see/i.test(text());if(!publicProof)throw new Error('Nie potwierdzono publicznej widoczności rolki.');
-  const share=await wait(()=>{const e=control(/^(Udostępnij|Share)$/);return enabled(e)&&e;},'gotowość rolki');
-  if(!captionMatches(caption,job.caption))throw new Error('Nie potwierdzono opisu.');await authorize(job,'instagram',{privacy:'public',privacyConfirmed:publicProof,caption:job.caption,...extra,...thumbnail},share);
+  const composer=globalThis.UplowWorkDOM.instagramComposer();
+  const publicProof=!!composer&&/każdy będzie mógł ją zobaczyć|anyone can see|everyone can see/i.test(norm(composer.innerText));if(!publicProof)throw new Error('Nie potwierdzono publicznej widoczności rolki.');
+  const share=await wait(()=>{const e=control(/^(Udostępnij|Share)$/,'button',composer);return enabled(e)&&e;},'gotowość rolki');
+  await wait(()=>globalThis.UplowWorkDOM.instagramUncroppedPreview(job.meta),'oryginalny kadr w gotowej rolce Instagrama',15000);
+  const finalCaption=globalThis.UplowWorkDOM.instagramCaption();
+  if(!finalCaption||!captionMatches(finalCaption,job.caption))throw new Error('Nie potwierdzono opisu.');await authorize(job,'instagram',{privacy:'public',privacyConfirmed:publicProof,caption:job.caption,...extra,...thumbnail,...aspect},share);
   await wait(()=>/Twoja rolka została udostępniona|Twój post został udostępniony|Your reel has been shared|Your post has been shared/.test(text()),'potwierdzenie Instagrama',120000);return {status:'published',message:'Instagram potwierdził udostępnienie rolki.'};
  }
  async function probe(platform){let result={connected:false,label:platform==='instagram'?'Nie wykryto przycisku tworzenia posta. Otwórz Instagram, sprawdź logowanie i kliknij Sprawdź.':'Zaloguj się w otwartej karcie, następnie kliknij Sprawdź.'};try{await wait(()=>{if(platform==='tiktok')return control(/^(Wybierz filmy|Select videos)$/);if(platform==='facebook')return control(/^(Menu Facebooka|Facebook menu)$/);if(platform==='instagram')return globalThis.UplowWorkDOM.instagramCreate();return control(/^(Prześlij filmy|Upload videos)$/)||control(/^(Utwórz|Create)$/);},'sesja',12000);let name='Zalogowano · '+({facebook:'Facebook',instagram:'Instagram',youtube:'YouTube Studio',tiktok:'TikTok Studio'}[platform]);if(platform==='facebook'){const a=all('a').find(e=>/^Oś czasu |^Timeline /.test(label(e)));if(a)name=label(a).replace(/^Oś czasu |^Timeline /,'');}if(platform==='instagram')name='Zalogowano · Instagram';result={connected:true,label:name};}catch{}return result;}

@@ -45,8 +45,9 @@ test('worker retains failed media, waits for a fresh retry document, reuses its 
   assert.equal((await content({type:'FINISH',attemptId:first,status:'blocked'})).ok,false);
   const second=sent[1].job.attemptId;assert.notEqual(first,second);
   assert.equal((await content({type:'PROGRESS',attemptId:second,status:'ready'})).ok,true);
-  assert.equal((await content({type:'COMMIT',attemptId:second,proof:{privacy:'public',privacyConfirmed:true,caption:'Test'}})).ok,true);
-  assert.equal((await content({type:'FINISH',attemptId:second,status:'published'})).ok,true);
+  const slot=globalThis.UplowWorkSchedule.earliestSchedule(Date.now()+2000);
+  assert.equal((await content({type:'COMMIT',attemptId:second,proof:{privacy:'public',privacyConfirmed:true,caption:'Test',scheduleConfirmed:true,scheduleDate:slot.date,scheduleTime:slot.time,scheduledAt:slot.timestamp,scheduleTimezoneOffset:slot.timezoneOffset}})).ok,true);
+  assert.equal((await content({type:'FINISH',attemptId:second,status:'scheduled',scheduledAt:slot.timestamp})).ok,true);
   assert.equal(await getMedia('retry-file'),undefined);assert.equal((await panel({type:'RETRY',id:'retry-job',platform:'youtube'})).ok,false);
   assert.equal((await getJob('retry-job')).targets[1].committedAt,1);
  }finally{delete globalThis.chrome;}

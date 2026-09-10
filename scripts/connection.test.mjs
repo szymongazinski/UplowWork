@@ -10,7 +10,7 @@ function page(html){
  const {document}=parseHTML('<html><body>'+html+'</body></html>');
  for(const e of document.querySelectorAll('*'))e.getClientRects=()=>e.hasAttribute('hidden')?[]:[{}];
  let receive;
- const context={document,getComputedStyle:()=>({visibility:'visible'}),setTimeout,clearTimeout,setInterval,clearInterval,
+ const context={document,getComputedStyle:e=>({visibility:'visible',objectFit:e.style.objectFit,objectPosition:e.style.objectPosition,overflow:e.style.overflow,overflowX:e.style.overflowX,overflowY:e.style.overflowY}),setTimeout,clearTimeout,setInterval,clearInterval,
  chrome:{runtime:{id:'test-extension',onMessage:{addListener(fn){receive=fn;}}}}};
  runInNewContext(helpers,context);runInNewContext(runner,context);
  return {dom:context.UplowWorkDOM,find:()=>context.UplowWorkDOM.instagramCreate(),probe:()=>new Promise(resolve=>receive({type:'PROBE',platform:'instagram'},{id:'test-extension'},resolve))};
@@ -47,7 +47,7 @@ test('connect all reuses tabs, retains all four account results and only sends r
   assert.deepEqual(Object.keys(state.accounts).sort(),['facebook','instagram','tiktok','youtube']);
   assert.ok(Object.values(state.accounts).every(a=>a.connected&&!a.checking));
   assert.ok(sent.every(m=>m.type==='PROBE'));assert.equal(sent.length,8);
-  assert.ok(injected.every(i=>i.files.join(',')==='dom.js,runner.js'));
+  assert.ok(injected.every(i=>i.files.join(',')==='dom.js,schedule.js,tiktok-schedule-ui.js,runner.js'));
  }finally{delete globalThis.chrome;}
 });
 
@@ -65,4 +65,27 @@ test('Instagram attaches only to the active creator, never a message or dormant 
  assert.equal(p.dom.videoInput('instagram').id,'active');
  assert.equal(page('<input type="file" accept="video/*">').dom.videoInput('instagram'),null);
  const ambiguous=page('<div role="dialog" aria-label="Utwórz nowy post"><input type="file" accept="video/*"><input type="file" accept="video/*"></div>');assert.equal(ambiguous.dom.videoInput('instagram'),null);
+});
+
+test('Instagram caption lookup supports both English hints and scopes editable fields to the active composer',()=>{
+ for(const hint of ['Add a caption...','Write a caption…','Dodaj opis...']){
+  const p=page('<textarea aria-label="Add a caption...">Background</textarea><div role="dialog" aria-label="New reel"><h1>New reel</h1><textarea id="caption" aria-label="Caption editor" placeholder="'+hint+'"></textarea></div>');
+  assert.equal(p.dom.instagramCaption().id,'caption');
+ }
+ assert.equal(page('<div contenteditable="true" aria-label="Add a caption..."></div>').dom.instagramCaption(),null);
+ const ambiguous=page('<div role="dialog" aria-label="New reel"><h1>New reel</h1><textarea placeholder="Add a caption..."></textarea><div contenteditable="true" data-placeholder="Add a caption..."></div></div>');
+ assert.equal(ambiguous.dom.instagramCaption(),null);
+});
+
+test('Instagram crop verification rejects the live square clipping layout and accepts Original pixel rounding',()=>{
+ const p=page('<div role="dialog" aria-label="Crop"><h1>Crop</h1><div id="outer" style="overflow:visible"><div id="clip" style="overflow:hidden"><div id="frame"><video style="object-fit:cover"></video></div></div></div></div>');
+ const composer=p.dom.instagramComposer(),video=composer.querySelector('video'),clip=composer.querySelector('#clip'),frame=composer.querySelector('#frame');
+ const rect=(width,height)=>({left:100,top:100,right:100+width,bottom:100+height,width,height});
+ video.videoWidth=720;video.videoHeight=1280;
+ video.getBoundingClientRect=()=>rect(501,893.242);frame.getBoundingClientRect=video.getBoundingClientRect;clip.getBoundingClientRect=()=>rect(501,501);
+ assert.equal(p.dom.instagramUncroppedPreview({width:720,height:1280}),false,'natural video dimensions must not hide its clipped bottom');
+ video.getBoundingClientRect=()=>rect(281,501);frame.getBoundingClientRect=video.getBoundingClientRect;clip.getBoundingClientRect=video.getBoundingClientRect;
+ assert.equal(p.dom.instagramUncroppedPreview({width:720,height:1280}),true,'Original layout preserves the full source within normal pixel rounding');
+ clip.getBoundingClientRect=()=>rect(240,501);
+ assert.equal(p.dom.instagramUncroppedPreview({width:720,height:1280}),false,'horizontal clipping must also fail');
 });

@@ -4,7 +4,7 @@ import {File} from 'node:buffer';
 import {validateRequest,assertCommit,interruptedStatus,validSender,videoFileMetadata} from '../extension/policy.js';
 import {expectedOptions} from '../extension/options.js';
 import 'fake-indexeddb/auto';
-import {createJob,listJobs,mutateJob,getJob,saveMedia,getMedia,removeMedia} from '../extension/store.js';
+import {createJob,listJobs,mutateJob,getJob,saveJob,saveMedia,getMedia,removeMedia} from '../extension/store.js';
 const request={platforms:['tiktok','facebook','youtube'],privacy:'private',caption:'Test',title:'Test',kids:false,size:1024,mime:'video/mp4',filename:'test.mp4',mediaId:'test',meta:{width:720,height:1280,duration:6}};
 test('accepts a complete private request',()=>assert.doesNotThrow(()=>validateRequest(request)));
 test('OS files with no MIME keep their container type and modification date through the request',()=>{
@@ -45,3 +45,34 @@ test('durable queue serializes concurrent starts and preserves platform updates'
  await createJob({...make('different-audience'),privacy:'public'});
 });
 test('file persistence preserves bytes and cleanup removes only the selected file',async()=>{await saveMedia('one',new Blob(['first']));await saveMedia('two',new Blob(['second']));assert.equal(await(await getMedia('one')).text(),'first');await removeMedia('one');assert.equal(await getMedia('one'),undefined);assert.equal(await(await getMedia('two')).text(),'second');});
+
+test('Instagram requires confirmed original dimensions and rejects cropped, stale or missing aspect proof',()=>{
+ const job={...request,platforms:['instagram'],privacy:'public'},target={platform:'instagram',status:'ready'};
+ const proof={privacy:'public',privacyConfirmed:true,caption:'Test',aspectRatioConfirmed:true,sourceWidth:720,sourceHeight:1280};
+ assert.doesNotThrow(()=>assertCommit(job,target,proof));
+ for(const patch of [{aspectRatioConfirmed:undefined},{aspectRatioConfirmed:false},{sourceHeight:720},{sourceWidth:1080,sourceHeight:1920},{sourceWidth:1280,sourceHeight:720},{sourceWidth:'720'},{sourceHeight:undefined}])assert.throws(()=>assertCommit(job,target,{...proof,...patch}),/proporcji/);
+ for(const meta of [undefined,{}, {width:0,height:1280},{width:720,height:Infinity},{width:NaN,height:1280},{width:1280,height:720}])assert.throws(()=>assertCommit({...job,meta},target,proof),/proporcji/);
+ // Square source video is valid, but a portrait source cropped to square is not.
+ assert.doesNotThrow(()=>assertCommit({...job,meta:{...job.meta,width:720,height:720}},target,{...proof,sourceHeight:720}));
+});
+
+test('worker CHECK and COMMIT both reject missing or changed Instagram aspect evidence',async()=>{
+ let handler;const event=()=>({addListener(){}});
+ globalThis.chrome={action:{onClicked:event()},alarms:{create:async()=>{},onAlarm:event()},storage:{local:{get:async()=>({}),set:async()=>{}}},runtime:{id:'aspect-test',getURL:p=>'chrome-extension://aspect-test/'+p,onInstalled:event(),onStartup:event(),onMessage:{addListener(fn){handler=fn;}}},tabs:{onUpdated:event(),onRemoved:event()}};
+ try{
+  await import('../extension/background.js?aspect-test');
+  const id='instagram-aspect-job',attemptId='aspect-attempt';
+  await saveJob({...request,id,dryRun:true,privacy:'public',targets:[{platform:'instagram',status:'ready',tabId:71,attemptId}]});
+  const sender={id:'aspect-test',tab:{id:71},frameId:0,url:'https://www.instagram.com/'};
+  const content=m=>new Promise(resolve=>handler({id,attemptId,platform:'instagram',...m},sender,resolve));
+  const proof={privacy:'public',privacyConfirmed:true,caption:'Test',aspectRatioConfirmed:true,sourceWidth:720,sourceHeight:1280};
+  for(const patch of [{aspectRatioConfirmed:undefined},{sourceHeight:720}])assert.equal((await content({type:'CHECK',proof:{...proof,...patch}})).ok,false);
+  assert.equal((await content({type:'CHECK',proof})).ok,true);
+  assert.equal((await content({type:'COMMIT',proof})).ok,false,'dry-run must not commit even with valid dimensions');
+  assert.equal((await getJob(id)).targets[0].committedAt,undefined);
+  await mutateJob(id,j=>{j.dryRun=false;return j;});
+  assert.equal((await content({type:'COMMIT',proof:{...proof,sourceHeight:720}})).ok,false);
+  assert.equal((await getJob(id)).targets[0].status,'ready');
+  assert.equal((await content({type:'COMMIT',proof})).ok,true);assert.ok((await getJob(id)).targets[0].committedAt);
+ }finally{delete globalThis.chrome;}
+});

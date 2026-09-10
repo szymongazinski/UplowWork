@@ -1,10 +1,12 @@
 import {validateOptions,expectedOptions} from './options.js';
 import {captionPlans,captionFor} from './captions.js';
+import './schedule.js';
+const {assertScheduleProof}=globalThis.UplowWorkSchedule;
 export const PLATFORMS=['tiktok','facebook','instagram','youtube'];
 export const URLS={tiktok:'https://www.tiktok.com/tiktokstudio/upload',facebook:'https://www.facebook.com/',instagram:'https://www.instagram.com/',youtube:'https://studio.youtube.com/'};
 export const HOSTS={tiktok:'www.tiktok.com',facebook:'www.facebook.com',instagram:'www.instagram.com',youtube:'studio.youtube.com'};
 export const ACTIVE=['preparing','uploading','ready','committing'];
-export const TERMINAL=['published','submitted','blocked','unknown','cancelled','draft'];
+export const TERMINAL=['published','scheduled','submitted','blocked','unknown','cancelled','draft'];
 const VIDEO_MIMES={mp4:'video/mp4',mov:'video/quicktime',webm:'video/webm'};
 export function videoFileMetadata(file){
  if(typeof file?.name!=='string'||!file.name.length||file.name.length>255)throw new Error('Nieprawidłowa nazwa filmu. Wybierz plik ponownie.');
@@ -30,11 +32,13 @@ export function validateRequest(m){
  if(media.mime!==m.mime||typeof m.mediaId!=='string')throw new Error('Nieprawidłowy plik. Wybierz film ponownie.');
  if(m.thumbnail&&(!['middle','custom'].includes(m.thumbnail.mode)||typeof m.thumbnail.mediaId!=='string'||!Number.isInteger(m.thumbnail.size)||m.thumbnail.size<1||m.thumbnail.size>2*1024*1024||!['image/jpeg','image/png'].includes(m.thumbnail.mime)||!Array.isArray(m.thumbnail.platforms)||m.thumbnail.platforms.some(p=>!m.platforms.includes(p))))throw new Error('Nieprawidłowa miniatura.');
 }
-export function assertCommit(job,target,proof){
+export function assertCommit(job,target,proof,now=Date.now()){
  if(job.dryRun)throw new Error('Tryb testowy nie pozwala publikować.');
  if(job.cancelled||target.status!=='ready'||target.committedAt)throw new Error('Wysyłka została zatrzymana albo rozpoczęta wcześniej.');
  if(target.platform==='instagram'&&job.privacy==='private')throw new Error('Instagram nie ma potwierdzonej opcji Tylko ja.');
  if(!proof||proof.privacy!==job.privacy||proof.caption!==captionFor(job,target.platform)||proof.privacyConfirmed!==true)throw new Error('Nie potwierdzono opisu i widoczności. Publikacja zatrzymana.');
+ assertScheduleProof(job,target,proof,now);
+ if(target.platform==='instagram'&&(!Number.isFinite(job.meta?.width)||!Number.isFinite(job.meta?.height)||job.meta.width<=0||job.meta.height<job.meta.width||proof.aspectRatioConfirmed!==true||proof.sourceWidth!==job.meta.width||proof.sourceHeight!==job.meta.height))throw new Error('Nie potwierdzono zachowania oryginalnych proporcji filmu na Instagramie. Publikacja zatrzymana.');
  if(target.platform==='facebook'&&proof.mediaKind!=='reel')throw new Error('Nie potwierdzono kreatora rolki Facebooka.');
  if(!target.skipThumbnail&&job.thumbnail?.platforms.includes(target.platform)&&proof.thumbnailConfirmed!==true)throw new Error('Nie potwierdzono ustawienia miniatury.');
  if(target.platform==='youtube'&&(proof.title!==job.title||proof.kids!==job.kids))throw new Error('Nie potwierdzono tytułu lub odbiorców YouTube.');
@@ -49,6 +53,7 @@ export function resetTargetForRetry(job,platform,confirmedAbsent=false){
  if(target.committedAt&&!confirmedAbsent)throw new Error('Najpierw sprawdź na platformie, czy film nie został opublikowany.');
  if(platform==='instagram'&&job.privacy==='private')throw new Error('Instagram nie udostępnia opcji Tylko ja.');
  const tabId=target.tabId;const attempts=[...(target.attempts||[]),{status:target.status,message:target.message,committedAt:target.committedAt,updatedAt:target.updatedAt}].slice(-10);
+ if(platform==='tiktok')job.tiktokSchedule='auto15';
  Object.keys(target).forEach(key=>delete target[key]);
  Object.assign(target,{platform,previousTabId:tabId,status:'pending',message:'Ponowienie tej platformy w kolejce.',updatedAt:Date.now(),attemptId:crypto.randomUUID(),attempts});
  job.cancelled=false;
