@@ -2,11 +2,11 @@
 
 Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube Shorts**. Lokalny panel jako rozszerzenie Chrome lub Edge, bez abonamentu i bez dodatkowego serwera.
 
-**Wersja eksperymentalna 0.1.4.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
+**Wersja eksperymentalna 0.1.5.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
 
 ## Instalacja bez programowania
 
-1. Pobierz **UplowWork-v0.1.4.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
+1. Pobierz **UplowWork-v0.1.5.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
 2. W Chrome otwórz `chrome://extensions`, a w Edge `edge://extensions`.
 3. Włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż folder **UplowWork**, który zawiera `manifest.json`.
 4. Panel otworzy się po instalacji. Kliknij **Połącz wszystkie** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
@@ -32,13 +32,21 @@ Domyślnie: film nie jest przeznaczony dla dzieci, komentarze i liczba polubień
 
 YouTube wyłącza komentarze w filmach dla dzieci. „Ustawienie platformy” zachowuje stan zastany w danym formularzu.
 
+## Sprawdzanie bez publikacji
+
+Przycisk **Sprawdź wysyłkę bez publikacji** uruchamia ten sam kod obsługi formularzy: przesyła film, uzupełnia opis, ustawia wybraną widoczność i sprawdza pozostałe opcje. Zatrzymuje się przed kliknięciem publikacji. Tryb testowy ma również blokadę publikacji w service workerze. Plik trafia do wybranych serwisów; na ich stronach może pozostać nieopublikowany formularz lub szkic. W historii taki przebieg jest oznaczony **TEST BEZ PUBLIKACJI**. Ponowienie tego przebiegu również jest testem.
+
+Wersja 0.1.5 poprawia obsługę natywnych pól radio Facebooka i nazw odczytywanych z etykiet. Rozszerzenie wybiera Publiczne, zatwierdza wybór i ponownie sprawdza widoczność. Dla Instagrama dodano sekwencję zdarzeń wskaźnika podczas otwierania kreatora. Ponowienie w tej samej karcie wymusza odświeżenie dokumentu. Plik jest przekazywany pojedynczym zdarzeniem zmiany i sprawdzany sumą SHA-256 przed wysłaniem; TikTokowy komunikat Something went wrong jest wykrywany jako odrzucenie przesyłania. Ten komunikat sam w sobie nie wskazuje przyczyny problemu po stronie platformy.
+
+Testy offline uruchamiają rzeczywisty runner na formularzach testowych do etapu wyboru publiczności i zatwierdzenia, włącznie z blokadą publikacji w trybie testowym. Nie zastępują sprawdzenia konkretnego filmu i sesji w przeglądarce użytkownika. **Szczegóły zatrzymania** w historii zawierają wersję skryptu, etap, kod błędu oraz typy pól plików, bez haseł i plików cookie.
+
 ## Ponawianie i miniatury
 
 W historii kliknij **Ponów tylko TikTok / Facebook / Instagram / YouTube**. Plik po błędzie pozostaje na komputerze. Gdy poprzednia próba mogła już opublikować film, najpierw otwórz platformę i zaznacz, że sprawdziłeś brak publikacji. Jeśli stara wersja usunęła plik, wybierz ponownie identyczny film u góry formularza; ponowienie sprawdzi jego zawartość i zachowa pierwotny opis oraz ustawienia. Pomyślnie opublikowany YouTube nie jest ponawiany. Zatrzymanie pojedynczej platformy nie anuluje pozostałych.
 
 Miniaturę można przygotować z obrazu JPG/PNG do 2 MB albo automatycznie z klatki w połowie filmu. Generowanie odbywa się lokalnie, bez zmieniania pliku wideo; wynik można też pobrać. Jedną miniaturę przypisujesz do wybranych platform. Potwierdzono formularze przesyłania okładek TikToka i Instagrama. W sprawdzonym kreatorze Facebook Reels nie było pola własnej okładki, więc Facebook zachowuje okładkę domyślną. [Własne miniatury Shorts są wdrażane zależnie od konta YouTube](https://blog.youtube/news-and-events/youtube-studio-custom-thumbnail-updates/). Jeśli pole nie jest dostępne lub brak potwierdzenia miniatury, ta platforma zatrzyma się przed publikacją; można ponowić z domyślną miniaturą.
 
-Aktualizacja 0.1.4 poprawia wybór pola rolki Facebooka (oddzielonego od pól zwykłego posta), ignorowanie ukrytych formularzy, otwieranie kreatora Instagrama i obsługę odrzuconych przesyłań TikToka. Testy obejmują konkurujące ponowienia, nieaktualne próby i zachowanie pliku po błędzie. Przejście formularzy i okładek sprawdzono bez publikacji publicznych; nie jest to potwierdzenie całej kolejki na każdej konfiguracji kont.
+Aktualizacja 0.1.4 poprawiła wybór pola rolki Facebooka (oddzielonego od pól zwykłego posta), ignorowanie ukrytych formularzy, otwieranie kreatora Instagrama i obsługę odrzuconych przesyłań TikToka. Testy obejmują konkurujące ponowienia, nieaktualne próby i zachowanie pliku po błędzie. Przejście formularzy i okładek sprawdzono bez publikacji publicznych; nie jest to potwierdzenie całej kolejki na każdej konfiguracji kont.
 
 ## Hashtagi i podgląd
 

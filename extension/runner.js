@@ -1,15 +1,15 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.4';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.5';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
- const label=e=>norm(e.getAttribute('aria-label')||e.innerText||e.textContent);
+ const label=e=>globalThis.UplowWorkDOM.accessibleLabel(e);
  const all=(selector,root=document)=>[...root.querySelectorAll(selector)].filter(visible);
  const matches=(value,test)=>test instanceof RegExp?test.test(value):value===test;
  function unique(elements,description){if(elements.length!==1)throw new Error(elements.length?'Niejednoznaczny element: '+description:'Nie znaleziono: '+description);return elements[0];}
- function controls(test,role='button',root=document){const hits=all(role==='button'?'button,[role="button"]':`[role="${role}"]`,root).filter(e=>matches(label(e),test));return hits.filter(e=>!hits.some(other=>other!==e&&e.contains(other)));}
+ function controls(test,role='button',root=document){return globalThis.UplowWorkDOM.roleControls(test,role,root);}
  function control(test,role='button',root=document){const hits=controls(test,role,root);return hits.length===1?hits[0]:null;}
  function exactText(test,root=document){const hits=all('button,[role="button"],span,div,label',root).filter(e=>matches(norm(e.innerText),test));return hits.filter(e=>!hits.some(other=>other!==e&&e.contains(other)))[0]||null;}
  const text=()=>norm(document.body.innerText);
@@ -24,10 +24,10 @@
  function field(pattern){const hits=all('textarea,input:not([type=file]),[contenteditable="true"]').filter(e=>matches(norm(e.getAttribute('aria-label')||e.getAttribute('placeholder')||''),pattern));return hits.length===1?hits[0]:null;}
  function editable(role){const hits=all('[contenteditable="true"]').filter(e=>(!role||e.getAttribute('role')===role)&&!/(Napisz do:|Message to:|Napisz wiadomość|Write a message)/i.test(e.getAttribute('aria-label')||''));return hits.length===1?hits[0]:null;}
  const send=(job,platform,type,data={})=>chrome.runtime.sendMessage({id:job.id,attemptId:job.attemptId,platform,type,...data}).then(r=>{if(!r?.ok)throw new Error(r?.error||'Brak odpowiedzi UplowWork.');return r;});
- async function video(job,platform){const parts=[];for(let offset=0;offset<job.size;){const r=await send(job,platform,'CHUNK',{offset});const data=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));if(!data.length||data.length!==r.length)throw new Error('Nieprawidłowy fragment filmu.');parts.push(data);offset+=data.length;}const file=new File(parts,job.filename,{type:job.mime});if(file.size!==job.size)throw new Error('Niepełny plik.');return file;}
+ async function video(job,platform){const parts=[];for(let offset=0;offset<job.size;){const r=await send(job,platform,'CHUNK',{offset});const data=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));if(!data.length||data.length!==r.length)throw new Error('Nieprawidłowy fragment filmu.');parts.push(data);offset+=data.length;}const file=new File(parts,job.filename,{type:job.mime});if(file.size!==job.size)throw new Error('Niepełny plik.');if(job.digest){const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');if(hash!==job.digest)throw new Error('Plik zmienił się podczas przekazywania do przeglądarki. Wysyłka zatrzymana.');}return file;}
  async function attach(job,platform){
   const input=await wait(()=>globalThis.UplowWorkDOM.videoInput(platform),'pole filmu w kreatorze '+platform,120000);
-  step('Przesyłanie filmu do '+platform+'.');const f=await video(job,platform);const dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+  step('Przesyłanie filmu do '+platform+'.');const f=await video(job,platform);const dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));
  }
  async function cover(job,platform){
   if(!job.thumbnail?.platforms.includes(platform))return {};
@@ -40,7 +40,7 @@
   const input=await wait(()=>{const hits=[...document.querySelectorAll('input[type="file"]')].filter(e=>/image\/(jpeg|png|\*)/i.test(e.getAttribute('accept')||'')&&!/video/i.test(e.getAttribute('accept')||''));return hits.length===1?hits[0]:null;},'pole własnej miniatury. Jeśli konto go nie udostępnia, użyj domyślnej okładki platformy',15000);
   const parts=[];for(let offset=0;offset<job.thumbnail.size;){const r=await send(job,platform,'CHUNK',{asset:'thumbnail',offset});const bytes=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));if(!bytes.length)throw new Error('Niepełna miniatura.');parts.push(bytes);offset+=bytes.length;}
   const beforeImages=new Set(all('img,[style]').map(e=>e.getAttribute('src')||e.getAttribute('style')).filter(Boolean));
-  const f=new File(parts,job.thumbnail.mime==='image/png'?'miniatura.png':'miniatura.jpg',{type:job.thumbnail.mime}),dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+  const f=new File(parts,job.thumbnail.mime==='image/png'?'miniatura.png':'miniatura.jpg',{type:job.thumbnail.mime}),dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));
   await wait(()=>all('img,[style]').some(e=>{const value=e.getAttribute('src')||e.getAttribute('style')||'';return /blob:|data:image/.test(value)&&!beforeImages.has(value);}), 'podgląd wybranej miniatury',30000);
   if(platform==='tiktok'){await press(/^(Zapisz|Save)$/);await wait(()=>!control(/^(Upload cover image|Uploaded cover image)$/)&&!!editable('combobox'),'zapis okładki TikToka');}
   else if(platform==='facebook'){const save=control(/^(Zapisz|Save|Gotowe|Done)$/);if(save)click(save);}
@@ -95,10 +95,10 @@
   }
   return {options,syntheticConfirmed};
  }
- async function authorize(job,platform,proof,button){await send(job,platform,'PROGRESS',{status:'ready',message:'Sprawdzono opis i ustawienie widoczności.'});await send(job,platform,'COMMIT',{proof});committed=true;if(!enabled(button)||!visible(button))throw new Error('Przycisk publikacji zmienił stan.');click(button);}
+ async function authorize(job,platform,proof,button){await send(job,platform,'PROGRESS',{status:'ready',message:'Sprawdzono opis i ustawienie widoczności.'});if(job.dryRun){await send(job,platform,'CHECK',{proof});const done=new Error('Formularz i ustawienia sprawdzone. Zatrzymano przed publikacją.');done.code='DRY_RUN_COMPLETE';throw done;}await send(job,platform,'COMMIT',{proof});committed=true;if(!enabled(button)||!visible(button))throw new Error('Przycisk publikacji zmienił stan.');click(button);}
  async function tiktok(job){
   await wait(()=>control(/^(Wybierz filmy|Select videos)$/)||document.querySelector('input[type="file"]'),'zalogowanie do TikTok Studio');await attach(job,'tiktok');
-  await wait(()=>{const failure=all('[role=alert]').map(e=>norm(e.innerText)).find(t=>/nie udało|błąd|failed|couldn.t|error/i.test(t));if(failure)throw new Error('TikTok odrzucił przesyłanie: '+failure);return /Przesłano|Uploaded/.test(text());},'zakończenie przesyłania TikToka',600000);
+  await wait(()=>{const failure=all('[role=alert]').map(e=>norm(e.innerText)).find(t=>/nie udało|błąd|failed|couldn.t|error/i.test(t));if(failure)throw new Error('TikTok odrzucił przesyłanie: '+failure);if(/Something went wrong|Coś poszło nie tak/i.test(text())){const error=new Error('TikTok: Something went wrong — platforma nie przyjęła przesyłania.');error.code='TIKTOK_UPLOAD_REJECTED';throw error;}return /Przesłano|Uploaded/.test(text());},'zakończenie przesyłania TikToka',600000);
   const thumbnail=await cover(job,'tiktok');
   const caption=await wait(()=>editable('combobox')||editable('textbox')||field(/^(Opis|Description|Caption)/),'opis TikToka',600000);fill(caption,job.caption);
   const hint=control(/^(Rozumiem|Got it)$/);if(hint)click(hint);
@@ -146,8 +146,10 @@
   await press(/^(Dalej|Next)$/);await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Edytuj rolkę|Edit reel)$/),'edycja rolki');const thumbnail=await cover(job,'facebook');await press(/^(Dalej|Next)$/);
   await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/),'ustawienia rolki');const caption=await wait(()=>editable(),'opis rolki Facebooka');fill(caption,job.caption);
   const audience=await wait(()=>all('button,[role="button"]').find(e=>/^(Znajomi Twoi znajomi|Publiczne Każdy|Tylko ja Tylko ja|Friends Your friends|Public Anyone|Only me Only me)/.test(label(e))),'przycisk odbiorców');click(audience);
-  const option=await press(job.privacy==='private'?/^(Tylko ja|Only me)$/:/^(Publiczne Każdy|Public Anyone)/,'radio');await wait(()=>checked(option),'wybrana grupa odbiorców');
-  await press(/^(Zakończ wybór ustawienia prywatności odbiorców i zamknij okno dialogowe|Finish selecting audience privacy and close dialog|Done)$/);
+  const audienceDialog=await wait(()=>all('[role=\"dialog\"]').find(e=>/Wybierz grupę odbiorców|Select audience/.test(label(e))),'okno odbiorców Facebooka');
+  const audienceName=job.privacy==='private'?/^(Tylko ja|Only me)$/:/^(Publiczne|Public)(?: |$)/;
+  await press(audienceName,'radio',audienceDialog);await wait(()=>checked(control(audienceName,'radio',audienceDialog)),'wybrana grupa odbiorców');
+  await press(/^(Zakończ wybór ustawienia prywatności odbiorców i zamknij okno dialogowe|Finish selecting audience privacy and close dialog|Gotowe|Done)$/);
   const expected=job.privacy==='private'?/^(Tylko ja Tylko ja|Only me Only me)$/:/^(Publiczne Każdy|Public Anyone)/;
   const finalAudience=await wait(()=>all('button,[role="button"]').find(e=>expected.test(label(e))),'potwierdzenie widoczności Facebooka');
   let syntheticConfirmed=!job.synthetic;
@@ -162,7 +164,9 @@
  async function instagram(job){
   if(job.privacy!=='public')return {status:'blocked',message:'Instagram Reels nie ma potwierdzonej opcji Tylko ja. Nic nie wysłano.'};
   step('Otwieranie kreatora Instagrama.');
-  const create=await wait(()=>globalThis.UplowWorkDOM.instagramCreate(),'przycisk tworzenia Instagrama',120000);click(create);
+  const create=await wait(()=>globalThis.UplowWorkDOM.instagramCreate(),'przycisk tworzenia Instagrama',120000);
+  create.scrollIntoView({block:'center',inline:'center'});create.focus({preventScroll:true});
+  for(const type of ['pointerdown','mousedown','pointerup','mouseup']){const EventClass=type.startsWith('pointer')?PointerEvent:MouseEvent;create.dispatchEvent(new EventClass(type,{bubbles:true,cancelable:true,button:0,buttons:type.endsWith('down')?1:0,pointerType:'mouse',isPrimary:true}));}click(create);
   let submenuClicked=false;await wait(()=>{if(globalThis.UplowWorkDOM.videoInput('instagram'))return true;const post=control(/^(Post|Publikacja|Rolka|Reel)$/);if(post&&!submenuClicked){submenuClicked=true;click(post);}return false;},'wybór filmu w kreatorze Instagrama',120000);await attach(job,'instagram');
   await wait(()=>control(/^(OK)$/)||/Przytnij|Crop/.test(text()),'kadrowanie');const ok=control('OK');if(ok)click(ok);
   await press(/^(Dalej|Next)$/);await wait(()=>/Edytuj|Edit/.test(text()),'edycja Instagrama');const thumbnail=await cover(job,'instagram');await press(/^(Dalej|Next)$/);
@@ -181,8 +185,8 @@
   if(s.id!==chrome.runtime.id)return;
   if(m.type==='PROBE'){probe(m.platform).then(reply);return true;}
   if(m.type!=='RUN')return;
-  if(running){reply({started:false});return;}running=true;reply({started:true});
+  if(running){reply({started:false});return;}running=true;reply({started:true,version:globalThis.__wrzutkaInstalled});
   cancelled=false;committed=false;const job=m.job,platform=m.platform;currentJob=job;currentPlatform=platform;const heartbeat=setInterval(()=>send(job,platform,'HEARTBEAT').then(r=>{cancelled=r.cancelled;}).catch(()=>{cancelled=true;}),10000);
-  (async()=>{try{const handler={tiktok,youtube,facebook,instagram}[platform];if(!handler)throw new Error('Nieznana platforma.');const result=await handler(job);await send(job,platform,'FINISH',result);}catch(e){await send(job,platform,'FINISH',{status:committed?'unknown':'blocked',message:currentStep+': '+e.message}).catch(()=>{});}finally{clearInterval(heartbeat);}})();
+  (async()=>{try{const handler={tiktok,youtube,facebook,instagram}[platform];if(!handler)throw new Error('Nieznana platforma.');const result=await handler(job);await send(job,platform,'FINISH',result);}catch(e){await send(job,platform,'FINISH',{status:e.code==='DRY_RUN_COMPLETE'?'draft':committed?'unknown':'blocked',message:e.code==='DRY_RUN_COMPLETE'?e.message:currentStep+': '+e.message,diagnostic:{version:globalThis.__wrzutkaInstalled,step:currentStep,code:e.code||'FORM_ERROR',fileInputs:[...document.querySelectorAll('input[type=file]')].map(e=>e.getAttribute('accept')||''),instagramCreateFound:platform==='instagram'?!!globalThis.UplowWorkDOM.instagramCreate():undefined}}).catch(()=>{});}finally{clearInterval(heartbeat);}})();
  });
 })();

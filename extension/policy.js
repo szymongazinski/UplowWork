@@ -6,6 +6,7 @@ export const HOSTS={tiktok:'www.tiktok.com',facebook:'www.facebook.com',instagra
 export const ACTIVE=['preparing','uploading','ready','committing'];
 export const TERMINAL=['published','submitted','blocked','unknown','cancelled','draft'];
 export function validateRequest(m){
+ if(m.dryRun!==undefined&&typeof m.dryRun!=='boolean')throw new Error('Nieprawidłowy tryb testowy.');
  validateOptions(m.options);
  if(m.synthetic!==undefined&&typeof m.synthetic!=='boolean')throw new Error('Nieprawidłowe oznaczenie AI.');
  if(!Array.isArray(m.platforms)||!m.platforms.length||new Set(m.platforms).size!==m.platforms.length||m.platforms.some(p=>!PLATFORMS.includes(p)))throw new Error('Wybierz prawidłowe platformy.');
@@ -19,6 +20,7 @@ export function validateRequest(m){
  if(m.thumbnail&&(!['middle','custom'].includes(m.thumbnail.mode)||typeof m.thumbnail.mediaId!=='string'||!Number.isInteger(m.thumbnail.size)||m.thumbnail.size<1||m.thumbnail.size>2*1024*1024||!['image/jpeg','image/png'].includes(m.thumbnail.mime)||!Array.isArray(m.thumbnail.platforms)||m.thumbnail.platforms.some(p=>!m.platforms.includes(p))))throw new Error('Nieprawidłowa miniatura.');
 }
 export function assertCommit(job,target,proof){
+ if(job.dryRun)throw new Error('Tryb testowy nie pozwala publikować.');
  if(job.cancelled||target.status!=='ready'||target.committedAt)throw new Error('Wysyłka została zatrzymana albo rozpoczęta wcześniej.');
  if(target.platform==='instagram'&&job.privacy==='private')throw new Error('Instagram nie ma potwierdzonej opcji Tylko ja.');
  if(!proof||proof.privacy!==job.privacy||proof.caption!==captionFor(job,target.platform)||proof.privacyConfirmed!==true)throw new Error('Nie potwierdzono opisu i widoczności. Publikacja zatrzymana.');
