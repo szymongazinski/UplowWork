@@ -1,13 +1,35 @@
 {
- "manifest_version":3,
- "name":"UplowWork — jeden film, kilka platform",
- "version":"0.1.0",
- "description":"Lokalny panel wysyłania filmów na TikTok, Facebook Reels, Instagram Reels i YouTube Shorts.",
- "minimum_chrome_version":"120",
- "permissions":["storage","tabs","scripting","alarms","unlimitedStorage"],
- "host_permissions":["https://www.tiktok.com/*","https://www.facebook.com/*","https://www.instagram.com/*","https://studio.youtube.com/*"],
- "background":{"service_worker":"background.js","type":"module"},
- "action":{"default_title":"Otwórz UplowWork"},
- "icons":{"16":"icon16.png","48":"icon48.png","128":"icon128.png"},
- "content_security_policy":{"extension_pages":"script-src 'self'; object-src 'self'"}
+  "manifest_version": 3,
+  "name": "UplowWork — jeden film, kilka platform",
+  "version": "0.1.1",
+  "description": "Lokalny panel wysyłania filmów na TikTok, Facebook Reels, Instagram Reels i YouTube Shorts.",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "alarms",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "https://www.tiktok.com/*",
+    "https://www.facebook.com/*",
+    "https://www.instagram.com/*",
+    "https://studio.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Otwórz UplowWork"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
 }

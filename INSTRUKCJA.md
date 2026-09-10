@@ -4,9 +4,9 @@
 2. Włącz **Tryb dewelopera**.
 3. Kliknij **Załaduj rozpakowane** i wybierz folder `UplowWork` znajdujący się obok tej instrukcji. Wybierasz cały folder, nie plik.
 4. W menu rozszerzeń przypnij UplowWork i kliknij jej ikonę.
-5. Przy każdej platformie kliknij **Połącz**. Zaloguj się na właściwe konto w otwartej karcie, następnie wróć do UplowWork i ponownie sprawdź połączenie.
+5. Kliknij **Połącz wszystkie**, aby sprawdzić cztery konta jednocześnie. Możesz też użyć **Połącz** przy pojedynczej platformie. Zaloguj się na właściwe konto w otwartej karcie, następnie wróć do UplowWork i ponownie sprawdź połączenie.
 6. Dodaj pionowy lub kwadratowy film do 3 minut i 100 MB. Wybierz platformy, opis i dodatkowe opcje. Dla YouTube podaj również tytuł i odbiorców.
-7. Pierwszy test wykonaj w domyślnym trybie **Prywatnie — tylko ja**. Instagram zostanie wtedy pominięty. Przeglądarka musi pozostać uruchomiona.
+7. Pierwszy test wykonaj po ręcznym wybraniu trybu **Prywatnie — tylko ja**. Instagram zostanie wtedy pominięty. Przeglądarka musi pozostać uruchomiona.
 
 Każde wspólne ustawienie występuje raz. Podpis „Opcja do…” wskazuje wybrane platformy, na których zostanie zastosowane. „Ustawienie platformy” pozostawia dany przełącznik w stanie zastanym w formularzu. YouTube wyłącza komentarze dla filmów przeznaczonych dla dzieci; wybór komentarzy nadal obowiązuje dla pozostałych platform. Ukrywanie liczników na Instagramie obejmuje także wyświetlenia.
 
@@ -17,3 +17,5 @@ W historii sprawdzisz wynik każdej platformy. „Wysłano — przetwarzanie” 
 Nie jest potrzebny abonament ani stale uruchomiony serwer. Rozszerzenie korzysta z formularzy platform. Zmiana formularza lub dodatkowa weryfikacja logowania może wymagać aktualizacji obsługi. Hasła i pliki cookie nie są odczytywane przez UplowWork.
 
 Status: wersja eksperymentalna. Formularze prywatnego przesyłania były sprawdzane osobno; pełny przebieg kolejki w zainstalowanym rozszerzeniu wymaga dalszych testów.
+
+Domyślnie wybrane są wszystkie platformy i widoczność publiczna, film nie dla dzieci, komentarze włączone, widoczna liczba polubień, brak płatnej promocji oraz dozwolone osadzanie na YouTube. Samo połączenie konta nie publikuje filmu.

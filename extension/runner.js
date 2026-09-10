@@ -1,7 +1,7 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled=true;
+ if(globalThis.__wrzutkaInstalled==='0.1.1')return;globalThis.__wrzutkaInstalled='0.1.1';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
@@ -134,7 +134,7 @@
  }
  async function instagram(job){
   if(job.privacy!=='public')return {status:'blocked',message:'Instagram Reels nie ma potwierdzonej opcji Tylko ja. Nic nie wysłano.'};
-  const create=await wait(()=>control(/^(Nowy post|New post|Create)$/,'link')||all('a').find(e=>/^(Nowy post|New post|Create)$/.test(label(e))),'utworzenie rolki Instagram');click(create);await attach(job,'instagram');
+  const create=await wait(()=>globalThis.UplowWorkDOM.instagramCreate(),'utworzenie rolki Instagram');click(create);await attach(job,'instagram');
   await wait(()=>control(/^(OK)$/)||/Przytnij|Crop/.test(text()),'kadrowanie');const ok=control('OK');if(ok)click(ok);
   await press(/^(Dalej|Next)$/);await wait(()=>/Edytuj|Edit/.test(text()),'edycja Instagrama');await press(/^(Dalej|Next)$/);
   const caption=await wait(()=>field(/^(Dodaj opis|Write a caption)/),'opis Instagrama');fill(caption,job.caption);
@@ -147,7 +147,7 @@
   if(read(caption)!==norm(job.caption))throw new Error('Nie potwierdzono opisu.');await authorize(job,'instagram',{privacy:'public',privacyConfirmed:publicProof,caption:job.caption,...extra},share);
   await wait(()=>/Twoja rolka została udostępniona|Twój post został udostępniony|Your reel has been shared|Your post has been shared/.test(text()),'potwierdzenie Instagrama',120000);return {status:'published',message:'Instagram potwierdził udostępnienie rolki.'};
  }
- async function probe(platform){let result={connected:false,label:'Zaloguj się w otwartej karcie, następnie kliknij Sprawdź.'};try{await wait(()=>{if(platform==='tiktok')return control(/^(Wybierz filmy|Select videos)$/);if(platform==='facebook')return control(/^(Menu Facebooka|Facebook menu)$/);if(platform==='instagram')return all('a').find(e=>/^(Nowy post|New post|Create)$/.test(label(e)));return control(/^(Prześlij filmy|Upload videos)$/)||control(/^(Utwórz|Create)$/);},'sesja',12000);let name='Zalogowano · '+({facebook:'Facebook',instagram:'Instagram',youtube:'YouTube Studio',tiktok:'TikTok Studio'}[platform]);if(platform==='facebook'){const a=all('a').find(e=>/^Oś czasu |^Timeline /.test(label(e)));if(a)name=label(a).replace(/^Oś czasu |^Timeline /,'');}if(platform==='instagram'){const a=all('a').find(e=>/^Zdjęcie profilowe |^.*profile picture/i.test(label(e)));if(a)name=label(a).replace(/^Zdjęcie profilowe /,'');}result={connected:true,label:name};}catch{}return result;}
+ async function probe(platform){let result={connected:false,label:platform==='instagram'?'Nie wykryto przycisku tworzenia posta. Otwórz Instagram, sprawdź logowanie i kliknij Sprawdź.':'Zaloguj się w otwartej karcie, następnie kliknij Sprawdź.'};try{await wait(()=>{if(platform==='tiktok')return control(/^(Wybierz filmy|Select videos)$/);if(platform==='facebook')return control(/^(Menu Facebooka|Facebook menu)$/);if(platform==='instagram')return globalThis.UplowWorkDOM.instagramCreate();return control(/^(Prześlij filmy|Upload videos)$/)||control(/^(Utwórz|Create)$/);},'sesja',12000);let name='Zalogowano · '+({facebook:'Facebook',instagram:'Instagram',youtube:'YouTube Studio',tiktok:'TikTok Studio'}[platform]);if(platform==='facebook'){const a=all('a').find(e=>/^Oś czasu |^Timeline /.test(label(e)));if(a)name=label(a).replace(/^Oś czasu |^Timeline /,'');}if(platform==='instagram')name='Zalogowano · Instagram';result={connected:true,label:name};}catch{}return result;}
  chrome.runtime.onMessage.addListener((m,s,reply)=>{
   if(s.id!==chrome.runtime.id)return;
   if(m.type==='PROBE'){probe(m.platform).then(reply);return true;}

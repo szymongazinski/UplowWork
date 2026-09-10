@@ -1,6 +1,10 @@
 import {getJob,createJob,listJobs,mutateJob,getMedia,removeMedia} from './store.js';
 import {URLS,ACTIVE,TERMINAL,validateRequest,assertCommit,interruptedStatus,validSender} from './policy.js';
 const now=()=>Date.now();
+const probes=new Map();
+let connectionRequest=Promise.resolve();
+let accountWrite=Promise.resolve();
+function setAccount(platform,record){const write=accountWrite.catch(()=>{}).then(async()=>{const {accounts={}}=await chrome.storage.local.get('accounts');accounts[platform]={...accounts[platform],...record};await chrome.storage.local.set({accounts});});accountWrite=write;return write;}
 const panelSender=s=>s.id===chrome.runtime.id&&s.url?.startsWith(chrome.runtime.getURL('index.html'));
 const respond=(fn,reply)=>{fn().then(result=>reply({ok:true,...result})).catch(e=>reply({ok:false,error:e.message}));return true;};
 const touch=(id,platform,fn)=>mutateJob(id,j=>{const t=j.targets.find(t=>t.platform===platform);if(!t)throw new Error('Nie znaleziono platformy.');fn(t,j);t.updatedAt=now();return j;});
@@ -42,13 +46,27 @@ async function handlePanel(m){
  if(m.type==='CANCEL'){
   await mutateJob(m.id,j=>{j.cancelled=true;for(const t of j.targets){if(!t.committedAt&&!TERMINAL.includes(t.status)){t.status='cancelled';t.message='Zatrzymano przed publikacją.';}}return j;});return {};
  }
+ if(m.type==='CONNECT_ALL')return connectPlatforms(Object.keys(URLS));
  if(m.type==='CONNECT'){
   if(!URLS[m.platform])throw new Error('Nieznana platforma.');
-  const {connectTabs={}}=await chrome.storage.local.get('connectTabs');let tab;
-  if(connectTabs[m.platform])try{tab=await chrome.tabs.get(connectTabs[m.platform]);await chrome.tabs.update(tab.id,{active:true});}catch{}
-  if(!tab)tab=await chrome.tabs.create({url:URLS[m.platform],active:true});connectTabs[m.platform]=tab.id;await chrome.storage.local.set({connectTabs});if(tab.status==='complete')await probe(tab.id,m.platform);return {};
+  return connectPlatforms([m.platform]);
  }
  throw new Error('Nieznane polecenie panelu.');
+}
+function connectPlatforms(platforms){
+ const request=connectionRequest.catch(()=>{}).then(async()=>{
+  const {connectTabs={}}=await chrome.storage.local.get('connectTabs');const opened=[];
+  for(const platform of platforms){try{
+   let tab;if(connectTabs[platform])try{const candidate=await chrome.tabs.get(connectTabs[platform]);if(new URL(candidate.url).hostname===new URL(URLS[platform]).hostname)tab=candidate;}catch{}
+   if(!tab){const candidates=await chrome.tabs.query({url:new URL(URLS[platform]).origin+'/*'});tab=candidates.find(t=>t.active)||candidates[0];}
+   if(!tab)tab=await chrome.tabs.create({url:URLS[platform],active:false});
+   connectTabs[platform]=tab.id;opened.push({platform,id:tab.id});
+  }catch{await setAccount(platform,{connected:false,checking:false,label:'Nie udało się otworzyć platformy. Spróbuj przyciskiem Sprawdź.',checkedAt:now()});}}
+  await chrome.storage.local.set({connectTabs});
+  if(opened.length)await chrome.tabs.update(opened[0].id,{active:true});
+  await Promise.all(opened.map(async({platform,id})=>{try{const latest=await chrome.tabs.get(id);if(latest.status==='complete')await probe(id,platform);}catch{await setAccount(platform,{connected:false,checking:false,label:'Karta została zamknięta. Kliknij Sprawdź.',checkedAt:now()});}}));
+  return {};
+ });connectionRequest=request;return request;
 }
 // Durable claim before opening a tab; concurrent START requests cannot dispatch twice.
 async function next(id){
@@ -59,13 +77,21 @@ async function next(id){
 }
 async function dispatch(id,platform,tabId){
  let claimed=false;const j=await touch(id,platform,(t,j)=>{if(t.status==='preparing'&&!t.dispatched&&!j.cancelled){t.dispatched=true;claimed=true;}});if(!claimed)return;
- try{await chrome.scripting.executeScript({target:{tabId},files:['runner.js']});const response=await chrome.tabs.sendMessage(tabId,{type:'RUN',job:{...j,targets:undefined,digest:undefined},platform});if(!response?.started)throw new Error('Nie uruchomiono obsługi formularza.');}catch(e){await touch(id,platform,t=>{if(!t.committedAt){t.status='blocked';t.message='Nie udało się otworzyć formularza. Zaloguj się do platformy i sprawdź kartę.';}});await next(id);}
+ try{await chrome.scripting.executeScript({target:{tabId},files:['dom.js','runner.js']});const response=await chrome.tabs.sendMessage(tabId,{type:'RUN',job:{...j,targets:undefined,digest:undefined},platform});if(!response?.started)throw new Error('Nie uruchomiono obsługi formularza.');}catch(e){await touch(id,platform,t=>{if(!t.committedAt){t.status='blocked';t.message='Nie udało się otworzyć formularza. Zaloguj się do platformy i sprawdź kartę.';}});await next(id);}
 }
 async function probe(tabId,platform){
- try{const tab=await chrome.tabs.get(tabId);if(new URL(tab.url).hostname!==new URL(URLS[platform]).hostname)return;await chrome.scripting.executeScript({target:{tabId},files:['runner.js']});const result=await chrome.tabs.sendMessage(tabId,{type:'PROBE',platform});const {accounts={}}=await chrome.storage.local.get('accounts');accounts[platform]={connected:!!result?.connected,label:result?.label||'Zaloguj się w otwartej karcie',checkedAt:now()};await chrome.storage.local.set({accounts});}catch{}
+ const key=platform+':'+tabId;if(probes.has(key))return probes.get(key);
+ const work=(async()=>{await setAccount(platform,{checking:true});try{
+  const tab=await chrome.tabs.get(tabId);if(new URL(tab.url).hostname!==new URL(URLS[platform]).hostname)throw new Error('Otwarta karta ma inny adres. Kliknij Sprawdź, aby wrócić na platformę.');
+  await chrome.scripting.executeScript({target:{tabId},files:['dom.js','runner.js']});
+  const result=await chrome.tabs.sendMessage(tabId,{type:'PROBE',platform});
+  await setAccount(platform,{connected:!!result?.connected,checking:false,label:result?.label||'Zaloguj się w otwartej karcie i kliknij Sprawdź.',checkedAt:now()});
+ }catch(e){await setAccount(platform,{connected:false,checking:false,label:'Nie udało się sprawdzić karty. Odśwież stronę platformy i kliknij Sprawdź.',checkedAt:now()});}})();
+ probes.set(key,work);try{return await work;}finally{probes.delete(key);}
 }
 chrome.tabs.onUpdated.addListener(async(tabId,change)=>{
- if(change.status!=='complete')return;const {connectTabs={}}=await chrome.storage.local.get('connectTabs');for(const [p,id]of Object.entries(connectTabs))if(id===tabId)await probe(tabId,p);
+ if(change.status!=='complete'&&!change.url)return;const {connectTabs={}}=await chrome.storage.local.get('connectTabs');for(const [p,id]of Object.entries(connectTabs))if(id===tabId)await probe(tabId,p);
+ if(change.status!=='complete')return;
  for(const j of await listJobs())for(const t of j.targets)if(t.tabId===tabId&&t.status==='preparing'&&!t.dispatched)await dispatch(j.id,t.platform,tabId);
 });
 chrome.tabs.onRemoved.addListener(async tabId=>{for(const j of await listJobs())for(const t of j.targets)if(t.tabId===tabId&&ACTIVE.includes(t.status)){await touch(j.id,t.platform,t=>{t.status=interruptedStatus(t);t.message='Karta platformy została zamknięta. '+(t.committedAt?'Sprawdź, czy film został zapisany.':'Nie rozpoczęto publikacji.');});await next(j.id);}});

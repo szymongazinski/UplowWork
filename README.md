@@ -2,21 +2,21 @@
 
 Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube Shorts**. Lokalny panel jako rozszerzenie Chrome lub Edge, bez abonamentu i bez dodatkowego serwera.
 
-**Wersja eksperymentalna 0.1.0.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
+**Wersja eksperymentalna 0.1.1.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
 
 ## Instalacja bez programowania
 
-1. Pobierz **UplowWork-v0.1.0.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
+1. Pobierz **UplowWork-v0.1.1.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
 2. W Chrome otwórz `chrome://extensions`, a w Edge `edge://extensions`.
 3. Włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż folder **UplowWork**, który zawiera `manifest.json`.
-4. Panel otworzy się po instalacji. Kliknij **Połącz** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
+4. Panel otworzy się po instalacji. Kliknij **Połącz wszystkie** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
 
 [Szczegółowa instrukcja](INSTRUKCJA.md). To instalacja lokalna rozszerzenia, nie strona GitHub Pages. Pobranie samego kodu źródłowego wymaga kompilacji opisanej niżej.
 
 ## Co potrafi
 
 - Jeden plik, wspólny opis i wybór dowolnych platform.
-- Domyślny tryb **Prywatnie — tylko ja**. Instagram jest w tym trybie pomijany, ponieważ w sprawdzonym formularzu nie było takiej opcji.
+- Domyślnie zaznaczone są wszystkie cztery platformy i widoczność **Publicznie — wszyscy**. Możesz przełączyć na **Prywatnie — tylko ja**. Instagram jest w trybie prywatnym pomijany, ponieważ w sprawdzonym formularzu nie było takiej opcji.
 - Dodatkowe ustawienia występują raz, z podpisem wskazującym platformy.
 - Oddzielny status każdej wysyłki, trwała kolejka i zatrzymanie kolejnych wysyłek.
 - Sprawdzenie ustawień przed publikacją i blokada automatycznych duplikatów.
@@ -27,6 +27,8 @@ Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube
 | Widoczność liczby polubień | Instagram, YouTube; Instagram obejmuje też wyświetlenia |
 | Oznaczenie realistycznych treści AI | Wszystkie cztery |
 | Tytuł, materiał dla dzieci, płatna promocja, osadzanie | YouTube |
+
+Domyślnie: film nie jest przeznaczony dla dzieci, komentarze i liczba polubień są widoczne, brak płatnej promocji, osadzanie na innych stronach jest dozwolone.
 
 YouTube wyłącza komentarze w filmach dla dzieci. „Ustawienie platformy” zachowuje stan zastany w danym formularzu.
 

@@ -5,7 +5,7 @@ export const OPTION_DEFS = [
  {id:'paidPromotion',label:'Płatna promocja',platforms:['youtube'],choices:[['default','Ustawienie platformy'],['yes','Tak, film zawiera płatną promocję'],['no','Nie, film nie zawiera płatnej promocji']]},
  {id:'embedding',label:'Osadzanie filmu na innych stronach',platforms:['youtube'],choices:[['default','Ustawienie platformy'],['on','Zezwalaj'],['off','Nie zezwalaj']]},
 ];
-export const DEFAULT_OPTIONS=Object.fromEntries(OPTION_DEFS.map(o=>[o.id,'default']));
+export const DEFAULT_OPTIONS={comments:'on',likeCounts:'show',paidPromotion:'no',embedding:'on'};
 export function validateOptions(options={}){
  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('Nieprawidłowe opcje filmu.');
  for(const [key,value] of Object.entries(options)){
