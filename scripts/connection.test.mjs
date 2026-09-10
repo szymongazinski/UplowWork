@@ -59,3 +59,10 @@ test('Facebook selects the reel form input when unrelated post and duplicate upl
 test('hidden background controls cannot make Instagram create ambiguous or confirm a reel',()=>{
  const p=page('<div aria-hidden="true"><a>Nowy post</a><h2>Utwórz rolkę</h2></div><button id="visible">Utwórz</button>');assert.equal(p.find().id,'visible');assert.equal(p.dom.facebookReelStage(/^Utwórz rolkę$/),false);
 });
+
+test('Instagram attaches only to the active creator, never a message or dormant composer',()=>{
+ const p=page('<input id="message" type="file" accept="image/*,video/*"><div role="dialog" aria-label="Utwórz nowy post" aria-hidden="true"><input id="stale" type="file" accept="video/*"></div><div role="dialog" aria-label="Utwórz nowy post"><input id="active" hidden type="file" accept="video/mp4,video/quicktime"></div>');
+ assert.equal(p.dom.videoInput('instagram').id,'active');
+ assert.equal(page('<input type="file" accept="video/*">').dom.videoInput('instagram'),null);
+ const ambiguous=page('<div role="dialog" aria-label="Utwórz nowy post"><input type="file" accept="video/*"><input type="file" accept="video/*"></div>');assert.equal(ambiguous.dom.videoInput('instagram'),null);
+});

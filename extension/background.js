@@ -3,6 +3,7 @@ import {URLS,ACTIVE,TERMINAL,validateRequest,assertCommit,interruptedStatus,vali
 import {captionPlans,captionFor} from './captions.js';
 const now=()=>Date.now();
 const probes=new Map();
+const tabUpdates=new Map();
 let connectionRequest=Promise.resolve();
 let accountWrite=Promise.resolve();
 function setAccount(platform,record){const write=accountWrite.catch(()=>{}).then(async()=>{const {accounts={}}=await chrome.storage.local.get('accounts');accounts[platform]={...accounts[platform],...record};await chrome.storage.local.set({accounts});});accountWrite=write;return write;}
@@ -47,7 +48,7 @@ async function handlePanel(m){
   validateRequest(m);const media=await getMedia(m.mediaId);if(!media||media.size!==m.size)throw new Error('Nie zapisano poprawnie filmu. Wybierz plik ponownie.');
   if(m.thumbnail){const image=await getMedia(m.thumbnail.mediaId);if(!image||image.size!==m.thumbnail.size||image.size>2*1024*1024||!['image/jpeg','image/png'].includes(image.type))throw new Error('Miniatura musi być obrazem JPG/PNG do 2 MB.');}
   const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await media.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');
-  const id=crypto.randomUUID();await createJob({id,dryRun:m.dryRun===true,mediaId:m.mediaId,thumbnail:m.thumbnail||null,filename:m.filename,size:m.size,mime:m.mime,meta:m.meta,caption:m.caption,hashtags:m.hashtags||'',captions:Object.fromEntries(Object.entries(captionPlans(m.caption,m.hashtags,m.title)).map(([p,plan])=>[p,plan.text])),title:m.title||'',privacy:m.privacy,kids:m.kids,synthetic:!!m.synthetic,options:m.options||{},digest,createdAt:now(),targets:m.platforms.map(platform=>({platform,attemptId:crypto.randomUUID(),status:platform==='instagram'&&m.privacy==='private'?'blocked':'pending',message:platform==='instagram'&&m.privacy==='private'?'Pominięto: brak potwierdzonej opcji „Tylko ja” dla Instagram Reels.':'',updatedAt:now()}))});return {id};
+  const id=crypto.randomUUID();await createJob({id,dryRun:m.dryRun===true,mediaId:m.mediaId,thumbnail:m.thumbnail||null,filename:m.filename,size:m.size,mime:m.mime,lastModified:m.lastModified,meta:m.meta,caption:m.caption,hashtags:m.hashtags||'',captions:Object.fromEntries(Object.entries(captionPlans(m.caption,m.hashtags,m.title)).map(([p,plan])=>[p,plan.text])),title:m.title||'',privacy:m.privacy,kids:m.kids,synthetic:!!m.synthetic,options:m.options||{},digest,createdAt:now(),targets:m.platforms.map(platform=>({platform,attemptId:crypto.randomUUID(),status:platform==='instagram'&&m.privacy==='private'?'blocked':'pending',message:platform==='instagram'&&m.privacy==='private'?'Pominięto: brak potwierdzonej opcji „Tylko ja” dla Instagram Reels.':'',updatedAt:now()}))});return {id};
  }
  if(m.type==='RETRY'){
   const job=await getJob(m.id);if(!job)throw new Error('Nie znaleziono wysyłki.');let replacementId;
@@ -100,10 +101,23 @@ async function next(id){
  let claimed;
  const j=await mutateJob(id,j=>{if(j.cancelled||j.targets.some(t=>ACTIVE.includes(t.status)))return j;const t=j.targets.find(t=>t.status==='pending');if(t){t.status='preparing';t.updatedAt=now();t.message='Otwieranie kreatora platformy.';claimed=t.platform;}return j;});
  if(!claimed){if(j.targets.every(t=>t.status==='published')){await removeMedia(j.mediaId);if(j.thumbnail)await removeMedia(j.thumbnail.mediaId);}return;}
- try{const target=j.targets.find(t=>t.platform===claimed);let tab;if(target.previousTabId){try{const previous=await chrome.tabs.get(target.previousTabId);if(previous.url===URLS[claimed]){await chrome.tabs.reload(target.previousTabId);tab=await chrome.tabs.update(target.previousTabId,{active:true});}else tab=await chrome.tabs.update(target.previousTabId,{url:URLS[claimed],active:true});}catch{}}if(!tab)tab=await chrome.tabs.create({url:URLS[claimed],active:true});await touch(id,claimed,t=>{t.tabId=tab.id;});const latest=await chrome.tabs.get(tab.id);if(latest.status==='complete')await dispatch(id,claimed,tab.id);}catch(e){await touch(id,claimed,t=>{t.status='blocked';t.message=e.message;});await next(id);}
+ const target=j.targets.find(t=>t.platform===claimed);
+ try{
+  let previous;if(target.previousTabId)try{previous=await chrome.tabs.get(target.previousTabId);}catch{}
+  if(previous){
+   // A reload promise does not mean the new document has loaded. Persist the gate
+   // before navigation so an old "complete" snapshot cannot start the old runner.
+   let ready=false;await touch(id,claimed,(t,j)=>{if(t.attemptId===target.attemptId&&t.status==='preparing'&&!j.cancelled){t.tabId=previous.id;t.navigationPhase='requested';t.message='Odświeżanie karty przed ponowieniem wysyłki.';ready=true;}});
+   if(!ready)return;
+   if(previous.url===URLS[claimed]){await chrome.tabs.update(previous.id,{active:true});await chrome.tabs.reload(previous.id);}
+   else await chrome.tabs.update(previous.id,{url:URLS[claimed],active:true});
+   return; // Only a fresh loading -> complete event sequence may dispatch this retry.
+  }
+  const tab=await chrome.tabs.create({url:URLS[claimed],active:true});await touch(id,claimed,t=>{if(t.attemptId===target.attemptId&&t.status==='preparing')t.tabId=tab.id;});const latest=await chrome.tabs.get(tab.id);if(latest.status==='complete')await dispatch(id,claimed,tab.id);
+ }catch(e){await touch(id,claimed,t=>{if(t.attemptId===target.attemptId&&t.status==='preparing'&&!t.committedAt){t.status='blocked';t.message='Nie udało się przygotować karty: '+String(e.message).slice(0,200);}});await next(id);}
 }
 async function dispatch(id,platform,tabId){
- let claimed=false;const j=await touch(id,platform,(t,j)=>{if(t.status==='preparing'&&!t.dispatched&&!j.cancelled){t.dispatched=true;claimed=true;}});if(!claimed)return;
+ let claimed=false;const j=await touch(id,platform,(t,j)=>{if(t.tabId===tabId&&t.status==='preparing'&&!t.navigationPhase&&!t.dispatched&&!j.cancelled){t.dispatched=true;claimed=true;}});if(!claimed)return;
  try{await chrome.scripting.executeScript({target:{tabId},files:['dom.js','runner.js']});const response=await chrome.tabs.sendMessage(tabId,{type:'RUN',job:{...j,thumbnail:j.targets.find(t=>t.platform===platform).skipThumbnail?null:j.thumbnail,attemptId:j.targets.find(t=>t.platform===platform).attemptId,caption:captionFor(j,platform),targets:undefined},platform});if(!response?.started)throw new Error('Nie uruchomiono obsługi formularza.');}catch(e){await touch(id,platform,t=>{if(!t.committedAt){t.status='blocked';t.message='Nie udało się otworzyć formularza: '+String(e.message).slice(0,200);}});await next(id);}
 }
 async function probe(tabId,platform){
@@ -116,10 +130,21 @@ async function probe(tabId,platform){
  }catch(e){await setAccount(platform,{connected:false,checking:false,label:'Nie udało się sprawdzić karty. Odśwież stronę platformy i kliknij Sprawdź.',checkedAt:now()});}})();
  probes.set(key,work);try{return await work;}finally{probes.delete(key);}
 }
-chrome.tabs.onUpdated.addListener(async(tabId,change)=>{
- if(change.status!=='complete'&&!change.url)return;const {connectTabs={}}=await chrome.storage.local.get('connectTabs');for(const [p,id]of Object.entries(connectTabs))if(id===tabId)await probe(tabId,p);
- if(change.status!=='complete')return;
- for(const j of await listJobs())for(const t of j.targets)if(t.tabId===tabId&&t.status==='preparing'&&!t.dispatched)await dispatch(j.id,t.platform,tabId);
+chrome.tabs.onUpdated.addListener((tabId,change)=>{
+ // Chrome does not await event listeners. Serialize each tab's events so a quick
+ // complete event cannot overtake the durable write for its preceding loading.
+ const work=(tabUpdates.get(tabId)||Promise.resolve()).catch(()=>{}).then(async()=>{
+  if(change.status==='loading'||change.status==='complete'){
+   for(const j of await listJobs())for(const t of j.targets)if(t.tabId===tabId&&t.status==='preparing'&&!t.dispatched){
+    await touch(j.id,t.platform,current=>{if(current.attemptId!==t.attemptId||current.status!=='preparing')return;if(change.status==='loading'&&current.navigationPhase==='requested')current.navigationPhase='loading';else if(change.status==='complete'&&current.navigationPhase==='loading')delete current.navigationPhase;});
+    if(change.status==='complete')await dispatch(j.id,t.platform,tabId);
+   }
+  }
+ });
+ tabUpdates.set(tabId,work);const cleanup=()=>{if(tabUpdates.get(tabId)===work)tabUpdates.delete(tabId);};work.then(cleanup,cleanup);
+ // Account probes can wait for login controls. Keep them outside the navigation
+ // queue so they cannot hold up the following loading/complete events.
+ return work.then(async()=>{if(change.status!=='complete'&&!change.url)return;const {connectTabs={}}=await chrome.storage.local.get('connectTabs');for(const [p,id]of Object.entries(connectTabs))if(id===tabId)await probe(tabId,p);});
 });
 chrome.tabs.onRemoved.addListener(async tabId=>{for(const j of await listJobs())for(const t of j.targets)if(t.tabId===tabId&&ACTIVE.includes(t.status)){await touch(j.id,t.platform,t=>{t.status=interruptedStatus(t);t.message='Karta platformy została zamknięta. '+(t.committedAt?'Sprawdź, czy film został zapisany.':'Nie rozpoczęto publikacji.');});await next(j.id);}});
 chrome.alarms.onAlarm.addListener(async alarm=>{if(alarm.name!=='watchdog')return;for(const j of await listJobs()){for(const t of j.targets){if(ACTIVE.includes(t.status)&&now()-t.updatedAt>120000){await touch(j.id,t.platform,t=>{t.status=interruptedStatus(t);t.message=t.committedAt?'Brak potwierdzenia. Sprawdź platformę; automatyczne ponowienie jest zablokowane.':'Brak odpowiedzi formularza. Sprawdź logowanie i kartę platformy.';});}}await next(j.id);}});

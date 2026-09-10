@@ -19,8 +19,19 @@
   const leaves=hits.filter(e=>!hits.some(other=>other!==e&&e.contains(other)));
   return leaves.length===1?leaves[0]:null;
  }
+ function instagramComposer(root=document){
+  const title=/^(Utwórz nowy post|Create new post|Nowy post|New post|Nowa rolka|New reel|Przytnij|Crop|Edytuj|Edit)$/i;
+  const dialogs=Array.from(root.querySelectorAll('[role="dialog"]')).filter(e=>visible(e)&&(title.test(accessibleLabel(e))||Array.from(e.querySelectorAll('h1,h2,[role="heading"]')).some(h=>visible(h)&&title.test(norm(h.textContent)))));
+  return dialogs.length===1?dialogs[0]:null;
+ }
+ function instagramPost(root=document){
+  const pattern=/^(Post|Publikacja|Rolka|Reel)$/i;
+  const hits=Array.from(root.querySelectorAll('a,button,[role="button"],[role="link"],[role="menuitem"]')).filter(e=>visible(e)&&names(e).some(name=>pattern.test(name)));
+  const leaves=hits.filter(e=>!hits.some(other=>other!==e&&e.contains(other)));
+  return leaves.length===1?leaves[0]:null;
+ }
  function videoInput(platform,root=document){
-  const accepts=e=>/video|mp4|mov|webm/i.test(e.getAttribute('accept')||'');
+  const accepts=e=>!e.disabled&&/video|mp4|mov|webm/i.test(e.getAttribute('accept')||'');
   if(platform==='facebook'){
    // Facebook mounts two reel inputs outside its dialog, plus an unrelated post input.
    const forms=Array.from(root.querySelectorAll('[role="form"][aria-label="Rolki"],[role="form"][aria-label="Reels"]')).filter(visible);
@@ -28,9 +39,13 @@
    const hits=Array.from(forms[0].querySelectorAll('input[type="file"]')).filter(accepts);
    return hits.length===1?hits[0]:null;
   }
-  const inputs=Array.from(root.querySelectorAll('input[type="file"]')).filter(accepts);
+  // Instagram leaves other attachment fields mounted behind its active modal.
+  // Only the visible creator owns the file selected for a reel.
+  const scope=platform==='instagram'?instagramComposer(root):root;
+  if(!scope)return null;
+  const inputs=Array.from(scope.querySelectorAll('input[type="file"]')).filter(accepts);
   return inputs.length===1?inputs[0]:null;
  }
  function facebookReelStage(stage,root=document){return Array.from(root.querySelectorAll('h1,h2,[role="heading"]')).some(e=>visible(e)&&stage.test(norm(e.innerText||e.textContent)));}
- globalThis.UplowWorkDOM={names,accessibleLabel,roleControls,instagramCreate,videoInput,facebookReelStage};
+ globalThis.UplowWorkDOM={names,accessibleLabel,roleControls,instagramCreate,instagramComposer,instagramPost,videoInput,facebookReelStage};
 })();

@@ -1,11 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateRequest,assertCommit,interruptedStatus,validSender} from '../extension/policy.js';
+import {File} from 'node:buffer';
+import {validateRequest,assertCommit,interruptedStatus,validSender,videoFileMetadata} from '../extension/policy.js';
 import {expectedOptions} from '../extension/options.js';
 import 'fake-indexeddb/auto';
 import {createJob,listJobs,mutateJob,getJob,saveMedia,getMedia,removeMedia} from '../extension/store.js';
 const request={platforms:['tiktok','facebook','youtube'],privacy:'private',caption:'Test',title:'Test',kids:false,size:1024,mime:'video/mp4',filename:'test.mp4',mediaId:'test',meta:{width:720,height:1280,duration:6}};
 test('accepts a complete private request',()=>assert.doesNotThrow(()=>validateRequest(request)));
+test('OS files with no MIME keep their container type and modification date through the request',()=>{
+ const lastModified=1681234567890;
+ for(const [extension,mime] of [['MP4','video/mp4'],['MOV','video/quicktime'],['WebM','video/webm']]){
+  const file=new File(['original bytes'],'film.'+extension,{lastModified});
+  assert.equal(file.type,'');
+  const metadata=JSON.parse(JSON.stringify(videoFileMetadata(file)));
+  assert.deepEqual(metadata,{filename:file.name,size:file.size,mime,lastModified});
+  assert.doesNotThrow(()=>validateRequest({...request,...metadata}));
+  const rebuilt=new File([file],metadata.filename,{type:metadata.mime,lastModified:metadata.lastModified});
+  assert.equal(rebuilt.lastModified,file.lastModified);assert.equal(rebuilt.type,mime);
+ }
+});
+test('declared video MIME is preserved and mismatched or malformed metadata is rejected before upload',()=>{
+ const file=new File(['video'],'camera.mov',{type:'video/quicktime',lastModified:0});
+ assert.deepEqual(videoFileMetadata(file),{filename:'camera.mov',size:5,mime:'video/quicktime',lastModified:0});
+ for(const patch of [{filename:'camera.mov',mime:'video/mp4'},{filename:'camera.webm',mime:'video/mp4'},{filename:'camera.mp4',mime:'application/octet-stream'},{mime:''},{lastModified:NaN},{lastModified:'1681234567890'},{lastModified:1.5},{size:0}])assert.throws(()=>validateRequest({...request,...patch}));
+ // Older queued requests did not include the timestamp; validation stays compatible.
+ assert.doesNotThrow(()=>validateRequest(request));
+});
 test('shared options are scoped to supported platforms',()=>{const j={...request,options:{comments:'off',likeCounts:'hide',embedding:'off'}};assert.deepEqual(expectedOptions(j,'tiktok'),{comments:'off'});assert.deepEqual(expectedOptions(j,'instagram'),{comments:'off',likeCounts:'hide'});assert.deepEqual(expectedOptions(j,'facebook'),{});assert.deepEqual(expectedOptions(j,'youtube'),{comments:'off',likeCounts:'hide',embedding:'off'});});
 test('made-for-kids overrides YouTube comments only',()=>{const j={...request,kids:true,options:{comments:'on'}};assert.deepEqual(expectedOptions(j,'youtube'),{comments:'off'});assert.deepEqual(expectedOptions(j,'tiktok'),{comments:'on'});});
 test('rejects unsupported option values and missing platform confirmation',()=>{for(const options of [{comments:'paused'},{audience:'public'},null,[]])assert.throws(()=>validateRequest({...request,options}));const j={...request,options:{comments:'off'}},t={platform:'tiktok',status:'ready'},p={privacy:'private',privacyConfirmed:true,caption:'Test'};assert.throws(()=>assertCommit(j,t,p));assert.throws(()=>assertCommit(j,t,{...p,options:{comments:'on'}}));assert.doesNotThrow(()=>assertCommit(j,t,{...p,options:{comments:'off'}}));});

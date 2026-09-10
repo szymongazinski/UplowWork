@@ -6,7 +6,7 @@
 4. W menu rozszerzeń przypnij UplowWork i kliknij jej ikonę.
 5. Kliknij **Połącz wszystkie**, aby sprawdzić cztery konta jednocześnie. Możesz też użyć **Połącz** przy pojedynczej platformie. Zaloguj się na właściwe konto w otwartej karcie, następnie wróć do UplowWork i ponownie sprawdź połączenie.
 6. Dodaj pionowy lub kwadratowy film do 3 minut i 100 MB. Wybierz platformy, opis i dodatkowe opcje. Dla YouTube podaj również tytuł i odbiorców.
-7. Pierwszy test wykonaj po ręcznym wybraniu trybu **Prywatnie — tylko ja**. Instagram zostanie wtedy pominięty. Przeglądarka musi pozostać uruchomiona.
+7. Pierwszy test wykonaj przyciskiem **Sprawdź wysyłkę bez publikacji**. Przejdzie on przez formularze, ale zatrzyma się przed publikacją. Przy widoczności **Prywatnie — tylko ja** Instagram jest pomijany, ponieważ nie ma takiej opcji. Aby sprawdzić również jego kreator, wybierz widoczność publiczną i użyj wyłącznie przycisku sprawdzenia bez publikacji. Przeglądarka musi pozostać uruchomiona.
 
 Każde wspólne ustawienie występuje raz. Podpis „Opcja do…” wskazuje wybrane platformy, na których zostanie zastosowane. „Ustawienie platformy” pozostawia dany przełącznik w stanie zastanym w formularzu. YouTube wyłącza komentarze dla filmów przeznaczonych dla dzieci; wybór komentarzy nadal obowiązuje dla pozostałych platform. Ukrywanie liczników na Instagramie obejmuje także wyświetlenia.
 
@@ -19,3 +19,5 @@ Nie jest potrzebny abonament ani stale uruchomiony serwer. Rozszerzenie korzysta
 Status: wersja eksperymentalna. Formularze prywatnego przesyłania były sprawdzane osobno; pełny przebieg kolejki w zainstalowanym rozszerzeniu wymaga dalszych testów.
 
 Domyślnie wybrane są wszystkie platformy i widoczność publiczna, film nie dla dzieci, komentarze włączone, widoczna liczba polubień, brak płatnej promocji oraz dozwolone osadzanie na YouTube. Samo połączenie konta nie publikuje filmu.
+
+Po podmianie plików rozszerzenia kliknij jego przycisk odświeżenia w `chrome://extensions`, a następnie otwórz nowy panel z ikony UplowWork. Samo skopiowanie plików nie przeładowuje działającego rozszerzenia.

@@ -5,6 +5,17 @@ export const URLS={tiktok:'https://www.tiktok.com/tiktokstudio/upload',facebook:
 export const HOSTS={tiktok:'www.tiktok.com',facebook:'www.facebook.com',instagram:'www.instagram.com',youtube:'studio.youtube.com'};
 export const ACTIVE=['preparing','uploading','ready','committing'];
 export const TERMINAL=['published','submitted','blocked','unknown','cancelled','draft'];
+const VIDEO_MIMES={mp4:'video/mp4',mov:'video/quicktime',webm:'video/webm'};
+export function videoFileMetadata(file){
+ if(typeof file?.name!=='string'||!file.name.length||file.name.length>255)throw new Error('Nieprawidłowa nazwa filmu. Wybierz plik ponownie.');
+ const extension=file.name.match(/\.(mp4|mov|webm)$/i)?.[1].toLowerCase();
+ if(!extension)throw new Error('Wybierz film MP4, MOV lub WebM.');
+ if(!Number.isInteger(file.size)||file.size<1||file.size>100*1024*1024)throw new Error('Wybierz niepusty film do 100 MB.');
+ const mime=file.type||VIDEO_MIMES[extension];
+ if(mime!==VIDEO_MIMES[extension])throw new Error('Typ filmu nie pasuje do rozszerzenia MP4, MOV lub WebM. Wybierz plik ponownie.');
+ if(file.lastModified!==undefined&&!Number.isSafeInteger(file.lastModified))throw new Error('Nieprawidłowa data modyfikacji filmu. Wybierz plik ponownie.');
+ return {filename:file.name,size:file.size,mime,...(file.lastModified===undefined?{}:{lastModified:file.lastModified})};
+}
 export function validateRequest(m){
  if(m.dryRun!==undefined&&typeof m.dryRun!=='boolean')throw new Error('Nieprawidłowy tryb testowy.');
  validateOptions(m.options);
@@ -15,8 +26,8 @@ export function validateRequest(m){
  const plans=captionPlans(m.caption,m.hashtags,m.title);for(const p of m.platforms)if(plans[p].errors.length)throw new Error(p+': '+plans[p].errors[0]);
  if(m.platforms.includes('youtube')&&(typeof m.title!=='string'||!m.title.trim()||m.title.length>100||typeof m.kids!=='boolean'))throw new Error('Uzupełnij tytuł i odbiorców YouTube.');
  if(!m.meta||!Number.isFinite(m.meta.duration)||m.meta.duration<=0||m.meta.duration>180||!Number.isFinite(m.meta.width)||!Number.isFinite(m.meta.height)||m.meta.width<=0||m.meta.height<m.meta.width)throw new Error('Wybierz pionowy lub kwadratowy film o długości do 3 minut.');
- if(!Number.isInteger(m.size)||m.size<1||m.size>100*1024*1024||!['video/mp4','video/quicktime','video/webm'].includes(m.mime))throw new Error('Obsługiwane są MP4, MOV i WebM do 100 MB.');
- if(typeof m.filename!=='string'||m.filename.length>255||typeof m.mediaId!=='string')throw new Error('Nieprawidłowy plik.');
+ const media=videoFileMetadata({name:m.filename,size:m.size,type:m.mime,lastModified:m.lastModified});
+ if(media.mime!==m.mime||typeof m.mediaId!=='string')throw new Error('Nieprawidłowy plik. Wybierz film ponownie.');
  if(m.thumbnail&&(!['middle','custom'].includes(m.thumbnail.mode)||typeof m.thumbnail.mediaId!=='string'||!Number.isInteger(m.thumbnail.size)||m.thumbnail.size<1||m.thumbnail.size>2*1024*1024||!['image/jpeg','image/png'].includes(m.thumbnail.mime)||!Array.isArray(m.thumbnail.platforms)||m.thumbnail.platforms.some(p=>!m.platforms.includes(p))))throw new Error('Nieprawidłowa miniatura.');
 }
 export function assertCommit(job,target,proof){

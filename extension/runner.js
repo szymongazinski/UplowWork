@@ -1,7 +1,7 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.5';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.6';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
@@ -24,10 +24,17 @@
  function field(pattern){const hits=all('textarea,input:not([type=file]),[contenteditable="true"]').filter(e=>matches(norm(e.getAttribute('aria-label')||e.getAttribute('placeholder')||''),pattern));return hits.length===1?hits[0]:null;}
  function editable(role){const hits=all('[contenteditable="true"]').filter(e=>(!role||e.getAttribute('role')===role)&&!/(Napisz do:|Message to:|Napisz wiadomość|Write a message)/i.test(e.getAttribute('aria-label')||''));return hits.length===1?hits[0]:null;}
  const send=(job,platform,type,data={})=>chrome.runtime.sendMessage({id:job.id,attemptId:job.attemptId,platform,type,...data}).then(r=>{if(!r?.ok)throw new Error(r?.error||'Brak odpowiedzi UplowWork.');return r;});
- async function video(job,platform){const parts=[];for(let offset=0;offset<job.size;){const r=await send(job,platform,'CHUNK',{offset});const data=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));if(!data.length||data.length!==r.length)throw new Error('Nieprawidłowy fragment filmu.');parts.push(data);offset+=data.length;}const file=new File(parts,job.filename,{type:job.mime});if(file.size!==job.size)throw new Error('Niepełny plik.');if(job.digest){const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');if(hash!==job.digest)throw new Error('Plik zmienił się podczas przekazywania do przeglądarki. Wysyłka zatrzymana.');}return file;}
+ async function video(job,platform){const parts=[];for(let offset=0;offset<job.size;){const r=await send(job,platform,'CHUNK',{offset});const data=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));if(!data.length||data.length!==r.length)throw new Error('Nieprawidłowy fragment filmu.');parts.push(data);offset+=data.length;}const file=new File(parts,job.filename,{type:job.mime,...(job.lastModified===undefined?{}:{lastModified:job.lastModified})});if(file.size!==job.size)throw new Error('Niepełny plik.');if(job.digest){const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');if(hash!==job.digest)throw new Error('Plik zmienił się podczas przekazywania do przeglądarki. Wysyłka zatrzymana.');}return file;}
  async function attach(job,platform){
-  const input=await wait(()=>globalThis.UplowWorkDOM.videoInput(platform),'pole filmu w kreatorze '+platform,120000);
-  step('Przesyłanie filmu do '+platform+'.');const f=await video(job,platform);const dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+  await wait(()=>globalThis.UplowWorkDOM.videoInput(platform),'pole filmu w kreatorze '+platform,120000);
+  step('Przygotowanie pliku dla '+platform+'.');const f=await video(job,platform);
+  // Transfer and hashing can take seconds. React may have replaced the first
+  // input by then; never deliver the file to that detached element.
+  const input=await wait(()=>{const e=globalThis.UplowWorkDOM.videoInput(platform);return e?.isConnected&&enabled(e)?e:null;},'aktywne pole filmu w kreatorze '+platform,120000);
+  if(cancelled)throw new Error('Wysyłka zatrzymana.');
+  const dt=new DataTransfer();dt.items.add(f);input.files=dt.files;
+  if(input.files?.length!==1||input.files[0].size!==f.size)throw new Error('Przeglądarka nie przyjęła pliku do pola przesyłania.');
+  step('Przesyłanie filmu do '+platform+'.');input.dispatchEvent(new Event('change',{bubbles:true}));
  }
  async function cover(job,platform){
   if(!job.thumbnail?.platforms.includes(platform))return {};
@@ -164,10 +171,27 @@
  async function instagram(job){
   if(job.privacy!=='public')return {status:'blocked',message:'Instagram Reels nie ma potwierdzonej opcji Tylko ja. Nic nie wysłano.'};
   step('Otwieranie kreatora Instagrama.');
-  const create=await wait(()=>globalThis.UplowWorkDOM.instagramCreate(),'przycisk tworzenia Instagrama',120000);
-  create.scrollIntoView({block:'center',inline:'center'});create.focus({preventScroll:true});
-  for(const type of ['pointerdown','mousedown','pointerup','mouseup']){const EventClass=type.startsWith('pointer')?PointerEvent:MouseEvent;create.dispatchEvent(new EventClass(type,{bubbles:true,cancelable:true,button:0,buttons:type.endsWith('down')?1:0,pointerType:'mouse',isPrimary:true}));}click(create);
-  let submenuClicked=false;await wait(()=>{if(globalThis.UplowWorkDOM.videoInput('instagram'))return true;const post=control(/^(Post|Publikacja|Rolka|Reel)$/);if(post&&!submenuClicked){submenuClicked=true;click(post);}return false;},'wybór filmu w kreatorze Instagrama',120000);await attach(job,'instagram');
+  let createClicks=0,postClicks=0,lastClick=0;
+  await wait(()=>{
+   const dom=globalThis.UplowWorkDOM;
+   if(dom.videoInput('instagram'))return true;
+   // The modal may load its file field later. Clicking Create again here would
+   // close it, so retry only while no creator has appeared.
+   if(dom.instagramComposer())return false;
+   if(lastClick&&Date.now()-lastClick<3000)return false;
+   const post=createClicks?dom.instagramPost():null;
+   const target=post||dom.instagramCreate();if(!target||!enabled(target))return false;
+   if((post?postClicks:createClicks)>=3){const error=new Error('Instagram nie otworzył kreatora po kliknięciu. Sprawdź, czy strona nie wymaga zalogowania lub zamknięcia komunikatu.');error.code='INSTAGRAM_CREATE_UNRESPONSIVE';throw error;}
+   if(post)postClicks++;else createClicks++;lastClick=Date.now();
+   target.scrollIntoView({block:'center',inline:'center'});target.focus({preventScroll:true});
+   for(const type of ['pointerdown','mousedown','pointerup','mouseup']){
+    if(!target.isConnected||!visible(target)||dom.instagramComposer())return false;
+    const EventClass=type.startsWith('pointer')?PointerEvent:MouseEvent;
+    target.dispatchEvent(new EventClass(type,{bubbles:true,cancelable:true,button:0,buttons:type.endsWith('down')?1:0,pointerType:'mouse',isPrimary:true}));
+   }
+   if(target.isConnected&&visible(target)&&!dom.instagramComposer())click(target);
+   return false;
+  },'otwarcie kreatora i wybór filmu na Instagramie',120000);await attach(job,'instagram');
   await wait(()=>control(/^(OK)$/)||/Przytnij|Crop/.test(text()),'kadrowanie');const ok=control('OK');if(ok)click(ok);
   await press(/^(Dalej|Next)$/);await wait(()=>/Edytuj|Edit/.test(text()),'edycja Instagrama');const thumbnail=await cover(job,'instagram');await press(/^(Dalej|Next)$/);
   const caption=await wait(()=>field(/^(Dodaj opis|Write a caption)/),'opis Instagrama');fill(caption,job.caption);
