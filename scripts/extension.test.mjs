@@ -73,6 +73,7 @@ test('worker CHECK and COMMIT both reject missing or changed Instagram aspect ev
   await mutateJob(id,j=>{j.dryRun=false;return j;});
   assert.equal((await content({type:'COMMIT',proof:{...proof,sourceHeight:720}})).ok,false);
   assert.equal((await getJob(id)).targets[0].status,'ready');
-  assert.equal((await content({type:'COMMIT',proof})).ok,true);assert.ok((await getJob(id)).targets[0].committedAt);
+  assert.equal((await content({type:'COMMIT',proof})).ok,false);assert.equal((await getJob(id)).targets[0].committedAt,undefined);
+  assert.equal((await content({type:'CHECK',proof})).ok,true);
  }finally{delete globalThis.chrome;}
 });

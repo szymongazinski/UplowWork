@@ -1,7 +1,7 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.10';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.11';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
@@ -19,7 +19,8 @@
  let cancelled=false,running=false,committed=false,currentStep='Uruchamianie formularza',currentJob=null,currentPlatform=null;
  function step(description){currentStep=description;if(currentJob&&!committed)send(currentJob,currentPlatform,'PROGRESS',{status:'uploading',message:description}).catch(()=>{});}
  async function wait(fn,description,timeout=60000){step(description);const start=Date.now();while(Date.now()-start<timeout){if(cancelled&&!committed)throw new Error('Wysyłka zatrzymana.');if(currentPlatform==='tiktok'&&!committed){const failure=text().match(/(?:Nie udało się przesłać|Przesyłanie nie powiodło się|Upload failed|Couldn.t upload)[^.\n]*/i);if(failure)throw new Error(failure[0]);}const value=fn();if(value)return value;if(all('iframe').some(e=>/captcha/i.test(e.getAttribute('title')||'')))throw new Error('Platforma wymaga weryfikacji w przeglądarce.');await delay(400);}throw new Error('Nie potwierdzono: '+description+'. Sprawdź kartę platformy.');}
- async function press(test,role='button',root=document,timeout=60000){const e=await wait(()=>{const e=control(test,role,root);return enabled(e)?e:null;},String(test),timeout);click(e);return e;}
+ async function pause(ms,description){step(description);for(let elapsed=0;elapsed<ms;elapsed+=250){if(cancelled)throw new Error('Wysyłka zatrzymana.');await delay(Math.min(250,ms-elapsed));}}
+ async function press(test,role='button',root=document,timeout=60000){await pause(1000,'Oczekiwanie na stabilny formularz');const e=await wait(()=>{const e=control(test,role,root);return enabled(e)?e:null;},String(test),timeout);click(e);await pause(1000,'Oczekiwanie po zmianie etapu');return e;}
  function fill(e,value){if(!visible(e))throw new Error('Pole tekstowe nie jest widoczne.');e.focus();if(e.isContentEditable){const selection=window.getSelection();const range=document.createRange();range.selectNodeContents(e);selection.removeAllRanges();selection.addRange(range);if(!document.execCommand('insertText',false,value)){e.textContent=value;e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:value}));}}else{const proto=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));}if(norm(e.isContentEditable?e.innerText:e.value)!==norm(value))throw new Error('Nie udało się zapisać tekstu.');}
  function field(pattern){const hits=all('textarea,input:not([type=file]),[contenteditable="true"]').filter(e=>matches(norm(e.getAttribute('aria-label')||e.getAttribute('placeholder')||''),pattern));return hits.length===1?hits[0]:null;}
  function editable(role){const hits=all('[contenteditable="true"]').filter(e=>(!role||e.getAttribute('role')===role)&&!/(Napisz do:|Message to:|Napisz wiadomość|Write a message)/i.test(e.getAttribute('aria-label')||''));return hits.length===1?hits[0]:null;}
@@ -36,6 +37,7 @@
   const dt=new DataTransfer();dt.items.add(f);input.files=dt.files;
   if(input.files?.length!==1||input.files[0].size!==f.size)throw new Error('Przeglądarka nie przyjęła pliku do pola przesyłania.');
   step('Przesyłanie filmu do '+platform+'.');input.dispatchEvent(new Event('change',{bubbles:true}));
+  await pause(3000,'Oczekiwanie na rozpoczęcie przetwarzania filmu w '+platform);
  }
  async function cover(job,platform){
   if(!job.thumbnail?.platforms.includes(platform))return {};
@@ -147,6 +149,7 @@
   return {options,syntheticConfirmed};
  }
  async function authorize(job,platform,proof,resolveButton){
+  await pause(1500,'Oczekiwanie na zapis opisu i ustawień '+platform);
   currentStep='Końcowe sprawdzenie formularza '+platform;
   const ready=()=>{
    if(cancelled&&!committed)throw new Error('Wysyłka zatrzymana.');
@@ -156,15 +159,12 @@
   };
   ready();
   await send(job,platform,'PROGRESS',{status:'ready',message:'Sprawdzono opis i ustawienie widoczności.'});
-  // React can replace the whole composer while the worker persists progress or
-  // authorizes a send. Resolve the live controls and validate their values after
-  // each round trip. No asynchronous work may separate the final read and click.
+  // Revalidate after the worker saves the check, then hand the form to the user.
   ready();
-  if(job.dryRun){await send(job,platform,'CHECK',{proof});const done=new Error('Formularz i ustawienia sprawdzone. Zatrzymano przed publikacją.');done.code='DRY_RUN_COMPLETE';throw done;}
-  await send(job,platform,'COMMIT',{proof});committed=true;
-  const button=ready();
-  currentStep=platform==='tiktok'&&job.tiktokSchedule==='auto15'?'Zatwierdzanie harmonogramu TikToka':'Zatwierdzanie publikacji '+platform;
-  click(button);
+  await send(job,platform,'CHECK',{proof});
+  ready();
+  const done=new Error('Film i ustawienia przygotowane. Otwórz kartę platformy i kliknij końcowy przycisk samodzielnie.'+(platform==='tiktok'?' Jeśli termin minął, wybierz nowy termin planowania.':''));
+  done.code='DRY_RUN_COMPLETE';throw done;
  }
  async function tiktok(job){
   await wait(()=>control(/^(Wybierz filmy|Select videos)$/)||document.querySelector('input[type="file"]'),'zalogowanie do TikTok Studio');await attach(job,'tiktok');

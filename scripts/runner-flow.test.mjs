@@ -12,6 +12,17 @@ const runner=readFileSync(new URL('../extension/runner.js',import.meta.url),'utf
 const scheduleModule=readFileSync(new URL('../extension/schedule.js',import.meta.url),'utf8');
 const scheduleUI=readFileSync(new URL('../extension/tiktok-schedule-ui.js',import.meta.url),'utf8');
 
+test('all four final controls are left untouched regardless of legacy dryRun flag',async()=>{
+ const source=runner.slice(runner.indexOf(' async function authorize('),runner.indexOf(' async function tiktok('));
+ for(const platform of ['youtube','facebook','instagram','tiktok'])for(const dryRun of [false,true]){
+  const messages=[],pauses=[];let clicks=0,reads=0;
+  const context={cancelled:false,committed:false,currentStep:'',enabled:()=>true,visible:()=>true,pause:async ms=>pauses.push(ms),send:async(job,p,type)=>messages.push(type),click:()=>clicks++};
+  runInNewContext(source+';this.prepare=authorize;',context);
+  await assert.rejects(()=>context.prepare({dryRun},platform,{},()=>{reads++;return {isConnected:true};}),e=>e.code==='DRY_RUN_COMPLETE');
+  assert.deepEqual(messages,['PROGRESS','CHECK']);assert.equal(clicks,0);assert.equal(reads,3);assert.deepEqual(pauses,[1500]);
+ }
+});
+
 async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  const {document,window}=parseHTML('<html><body></body></html>');
  window.HTMLElement.prototype.getClientRects=function(){return !this.isConnected||this.hasAttribute('hidden')?[]:[{}];};
@@ -144,8 +155,8 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
    }
    if(scenario.rerenderUpload)tiktokUpload();return {ok:true,data:(corrupt?Buffer.alloc(bytes.length,1):bytes).toString('base64'),length:bytes.length};}
   if(m.type==='PROGRESS'&&m.status==='ready')mutateFinalForm('ready');
-  if(m.type==='CHECK')assertCommit({...job,dryRun:false},{platform,status:'ready'},m.proof,FastDate.now());
-  if(m.type==='COMMIT'){assertCommit(job,{platform,status:'ready'},m.proof,FastDate.now());mutateFinalForm('commit');}
+  if(m.type==='CHECK'){assertCommit({...job,dryRun:false},{platform,status:'ready'},m.proof,FastDate.now());mutateFinalForm('check');}
+  if(m.type==='COMMIT'){assertCommit(job,{platform,status:'ready'},m.proof,FastDate.now());mutateFinalForm('check');}
   if(m.type==='FINISH')finish(m);return {ok:true};
  }}}};
  runInNewContext(helper,context);runInNewContext(pageModule,context);runInNewContext(scheduleModule,context);runInNewContext(scheduleUI,context);runInNewContext(runner,context);
@@ -169,63 +180,63 @@ test('Facebook rejects unavailable, failed, incomplete or unsaved requested cove
  }
 });
 test('Facebook rechecks saved cover at ready and commit boundaries',async()=>{
- for(const changeCoverOn of ['ready','commit']){
+ for(const changeCoverOn of ['ready','check']){
   const r=await flow('facebook',false,false,{thumbnail:true,changeCoverOn});assert.equal(r.publishClicks,0);assert.match(r.result.message,/miniatury/);
  }
- const r=await flow('facebook',false,false,{thumbnail:true});assert.equal(r.result.status,'submitted',r.result.message);assert.equal(r.publishClicks,1);assert.equal(r.coverSaves,1);
+ const r=await flow('facebook',false,false,{thumbnail:true});assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishClicks,0);assert.equal(r.coverSaves,1);
 });
 
 test('Facebook Page runner verifies page identity and Public audience, then stops before publication in test mode',async()=>{
  const r=await flow('facebook');assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishClicks,0);assert.equal(r.changes,1);assert.ok(r.messages.some(m=>m.type==='CHECK'&&m.proof.privacy==='public'));assert.ok(!r.messages.some(m=>m.type==='COMMIT'));
 });
-test('real Facebook runner automatically publishes after confirming Public in normal mode (offline fixture)',async()=>{
- const r=await flow('facebook',false);assert.equal(r.result.status,'submitted',r.result.message);assert.equal(r.publishClicks,1);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+test('real Facebook runner prepares and never publishes even for legacy normal mode (offline fixture)',async()=>{
+ const r=await flow('facebook',false);assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,0);
 });
 test('real Instagram runner opens creator with pointer sequence, uploads once and checks caption without posting',async()=>{
  const r=await flow('instagram');assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.changes,1);assert.equal(r.publishClicks,0);assert.ok(r.messages.some(m=>m.type==='CHECK'));
 });
 
-test('Instagram normal mode confirms the form and presses Share exactly once (offline)',async()=>{
+test('Instagram legacy normal mode confirms the form and stops before Share (offline)',async()=>{
  const r=await flow('instagram',false,false,{english:true,options:{comments:'on',likeCounts:'show'}});
- assert.equal(r.result.status,'published',r.result.message);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);assert.ok(!r.messages.some(m=>m.type==='CHECK'));
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,0);assert.ok(r.messages.some(m=>m.type==='CHECK'));
 });
 
-test('Instagram presses the current Share after React replaces it during ready or COMMIT responses',async()=>{
- for(const replacePublishOn of ['ready','commit','both']){
+test('Instagram checks the current Share after React replaces it during ready or handoff responses',async()=>{
+ for(const replacePublishOn of ['ready','check','both']){
   const r=await flow('instagram',false,false,{english:true,options:{comments:'on',likeCounts:'show'},replacePublishOn});
-  assert.equal(r.result.status,'published',replacePublishOn+': '+r.result.message);assert.equal(r.publishReplacements,replacePublishOn==='both'?2:1);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+  assert.equal(r.result.status,'draft',replacePublishOn+': '+r.result.message);assert.equal(r.publishReplacements,replacePublishOn==='both'?2:1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,0);
  }
 });
 
-test('Instagram validates and shares a replaced whole composer with the same caption, audience and crop',async()=>{
- const r=await flow('instagram',false,false,{english:true,options:{comments:'on',likeCounts:'show'},replaceComposerOn:'commit'});
- assert.equal(r.result.status,'published',r.result.message);assert.equal(r.composerReplacements,1);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+test('Instagram validates and hands off a replaced whole composer with the same caption, audience and crop',async()=>{
+ const r=await flow('instagram',false,false,{english:true,options:{comments:'on',likeCounts:'show'},replaceComposerOn:'check'});
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.composerReplacements,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,0);
 });
 
-test('Instagram never shares a replaced composer whose public disclosure or crop changed during COMMIT',async()=>{
+test('Instagram never shares a replaced composer whose public disclosure or crop changed during handoff',async()=>{
  for(const mutation of ['changeDisclosureOn','changeCropOn']){
-  const r=await flow('instagram',false,false,{english:true,replaceComposerOn:'commit',[mutation]:'commit'});
-  assert.equal(r.result.status,'unknown',r.result.message);assert.equal(r.composerReplacements,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+  const r=await flow('instagram',false,false,{english:true,replaceComposerOn:'check',[mutation]:'check'});
+  assert.equal(r.result.status,'blocked',r.result.message);assert.equal(r.composerReplacements,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,0);
  }
 });
 
-test('Facebook presses the current final Publish after replacement during COMMIT (offline)',async()=>{
- const r=await flow('facebook',false,false,{replacePublishOn:'commit'});
- assert.equal(r.result.status,'submitted',r.result.message);assert.equal(r.publishReplacements,1);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+test('Facebook leaves the current final Publish untouched after replacement during handoff (offline)',async()=>{
+ const r=await flow('facebook',false,false,{replacePublishOn:'check'});
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishReplacements,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,0);
 });
 
-test('Instagram rejects a changed caption across the ready or COMMIT boundary without pressing Share',async()=>{
- for(const changeCaptionOn of ['ready','commit']){
+test('Instagram rejects a changed caption across the ready or handoff boundary without pressing Share',async()=>{
+ for(const changeCaptionOn of ['ready','check']){
   for(const replacePublishOn of [undefined,changeCaptionOn]){
    const r=await flow('instagram',false,false,{english:true,changeCaptionOn,replacePublishOn});
-   assert.equal(r.result.status,changeCaptionOn==='commit'?'unknown':'blocked',r.result.message);assert.equal(r.publishReplacements,replacePublishOn?1:0);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,changeCaptionOn==='commit'?1:0);
+   assert.equal(r.result.status,'blocked',r.result.message);assert.equal(r.publishReplacements,replacePublishOn?1:0);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,0);
   }
  }
 });
 
 test('Instagram dry-run still never clicks final Share when the ready response replaces it',async()=>{
  const r=await flow('instagram',true,false,{english:true,replacePublishOn:'both'});
- assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishReplacements,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='CHECK').length,1);assert.ok(!r.messages.some(m=>m.type==='COMMIT'));
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishReplacements,2);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='CHECK').length,1);assert.ok(!r.messages.some(m=>m.type==='COMMIT'));
 });
 
 test('Instagram fills the English Add a caption field and handles Advanced Settings defaults without publishing',async()=>{
@@ -282,30 +293,29 @@ test('TikTok auto15 prepares the real schedule adapter but dry-run never clicks 
  const proof=r.messages.find(m=>m.type==='CHECK')?.proof;assert.equal(proof?.scheduleConfirmed,true);assert.ok(proof.scheduledAt>Date.now()+14*60000);assert.ok(!r.messages.some(m=>m.type==='COMMIT'));
 });
 
-test('TikTok auto15 commits Schedule once and records explicit scheduled confirmation (offline)',async()=>{
- const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true});assert.equal(r.result.status,'scheduled',r.result.message);assert.equal(r.publishClicks,1);
- const commits=r.messages.filter(m=>m.type==='COMMIT');assert.equal(commits.length,1);assert.equal(r.result.scheduledAt,commits[0].proof.scheduledAt);
+test('TikTok auto15 prepares Schedule without confirming it (offline)',async()=>{
+ const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true});assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishClicks,0);
+ const checks=r.messages.filter(m=>m.type==='CHECK');assert.equal(checks.length,1);assert.ok(checks[0].proof.scheduledAt);assert.equal(r.result.scheduledAt,undefined);
 });
 
-test('TikTok selects the next nearest slot after expiry during ready and schedules exactly once',async()=>{
+test('TikTok selects the next nearest slot after expiry during ready and leaves scheduling to the user',async()=>{
  const clockBase=new Date(2026,0,15,12,0,0).getTime();
  const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true,clockBase,expireScheduleOn:'ready'});
- assert.equal(r.result.status,'scheduled',r.result.message);assert.equal(r.clockJumps,1);assert.equal(r.scheduleActivations,1);assert.equal(r.changes,1);assert.equal(r.scheduledTimes.length,2);
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.clockJumps,1);assert.equal(r.scheduleActivations,1);assert.equal(r.changes,1);assert.equal(r.scheduledTimes.length,2);
  assert.equal(r.scheduledTimes[1]-r.scheduledTimes[0],5*60000);assert.equal(r.messages.filter(m=>m.type==='PROGRESS'&&m.status==='ready').length,2);
- const commits=r.messages.filter(m=>m.type==='COMMIT');assert.equal(commits.length,1);assert.equal(commits[0].proof.scheduledAt,r.scheduledTimes[1]);assert.equal(r.result.scheduledAt,r.scheduledTimes[1]);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);
+ const checks=r.messages.filter(m=>m.type==='CHECK');assert.equal(checks.length,1);assert.equal(checks[0].proof.scheduledAt,r.scheduledTimes[1]);assert.equal(r.result.scheduledAt,undefined);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);
 });
 
-test('TikTok never reprepares or clicks Schedule when the committed slot expires during COMMIT response',async()=>{
- const clockBase=new Date(2026,0,15,12,0,0).getTime();
- const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true,clockBase,expireScheduleOn:'commit'});
- assert.equal(r.result.status,'unknown',r.result.message);assert.equal(r.result.diagnostic.code,'TIKTOK_SCHEDULE_EXPIRED');assert.equal(r.clockJumps,1);assert.equal(r.scheduleActivations,1);assert.equal(r.scheduledTimes.length,1);
- assert.equal(r.messages.filter(m=>m.type==='PROGRESS'&&m.status==='ready').length,1);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.changes,1);
+test('TikTok refreshes a slot that expires during handoff without scheduling',async()=>{
+ const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true,expireScheduleOn:'check'});
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.clockJumps,1);assert.equal(r.publishClicks,0);assert.equal(r.changes,1);
+ assert.ok(!r.messages.some(m=>m.type==='COMMIT'));assert.equal(r.scheduledTimes.length,2);
 });
 
-test('TikTok clicks the fresh Schedule button once after its replacement during COMMIT',async()=>{
+test('TikTok leaves the fresh Schedule button untouched after its replacement during handoff',async()=>{
  const clockBase=new Date(2026,0,15,12,0,0).getTime();
- const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true,clockBase,replacePublishOn:'commit'});
- assert.equal(r.result.status,'scheduled',r.result.message);assert.equal(r.publishReplacements,1);assert.equal(r.publishClicks,1);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,1);
+ const r=await flow('tiktok',false,false,{acceptUpload:true,schedule:true,clockBase,replacePublishOn:'check'});
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishReplacements,1);assert.equal(r.publishClicks,0);assert.equal(r.detachedPublishClicks,0);assert.equal(r.messages.filter(m=>m.type==='COMMIT').length,0);
 });
 
 test('Instagram handles a link or menuitem submenu before selecting a video',async()=>{
@@ -330,9 +340,9 @@ test('Facebook never uploads as a personal profile, another Page, or a legacy jo
   const r=await flow('facebook',false,false,scenario);assert.equal(r.result.status,'blocked',r.result.message);assert.equal(r.changes,0);assert.equal(r.publishClicks,0);assert.ok(!r.messages.some(m=>m.type==='COMMIT'));
  }
 });
-test('Facebook rechecks numeric Page ID across ready and COMMIT even when display names match',async()=>{
- for(const changeActorOn of ['ready','commit']){
-  const r=await flow('facebook',false,false,{changeActorOn});assert.equal(r.result.status,changeActorOn==='ready'?'blocked':'unknown');assert.equal(r.publishClicks,0);
+test('Facebook rechecks numeric Page ID across ready and handoff even when display names match',async()=>{
+ for(const changeActorOn of ['ready','check']){
+  const r=await flow('facebook',false,false,{changeActorOn});assert.equal(r.result.status,'blocked');assert.equal(r.publishClicks,0);
  }
 });
 

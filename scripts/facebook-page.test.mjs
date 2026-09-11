@@ -67,8 +67,9 @@ test('Worker pins the selected Page, resumes a switch only after a fresh load, a
   const normalJob=await getJob(normal.id);
   const normalContent=m=>new Promise(resolve=>handler({id:normal.id,attemptId:normalJob.targets[0].attemptId,platform:'facebook',...m},{...sender,tab:{id:91},url:other.url},resolve));
   assert.equal((await normalContent({type:'COMMIT',proof})).ok,false,'worker rejects evidence for another Page');
-  assert.equal((await normalContent({type:'COMMIT',proof:{...proof,facebookPageId:other.id}})).ok,true);
-  await normalContent({type:'FINISH',status:'submitted'});
+  assert.equal((await normalContent({type:'COMMIT',proof:{...proof,facebookPageId:other.id}})).ok,false,'even valid proofs cannot automatically publish');
+  assert.equal((await normalContent({type:'CHECK',proof:{...proof,facebookPageId:other.id}})).ok,true);
+  await normalContent({type:'FINISH',status:'draft'});
  }finally{delete globalThis.chrome;}
 });
 test('Duplicate detection distinguishes personal legacy jobs and different Pages but blocks the same Page',async()=>{

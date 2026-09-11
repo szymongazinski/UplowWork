@@ -6,7 +6,7 @@
 4. W menu rozszerzeń przypnij UplowWork i kliknij jej ikonę.
 5. Kliknij **Połącz wszystkie**, aby sprawdzić cztery konta jednocześnie. Możesz też użyć **Połącz** przy pojedynczej platformie. Zaloguj się na właściwe konto w otwartej karcie, następnie wróć do UplowWork i ponownie sprawdź połączenie.
 6. Dodaj pionowy lub kwadratowy film do 3 minut i 100 MB. Wybierz platformy, opis i dodatkowe opcje. Dla YouTube podaj również tytuł i odbiorców.
-7. Pierwszy test wykonaj przyciskiem **Sprawdź wysyłkę bez publikacji**. Przejdzie on przez formularze, ale zatrzyma się przed publikacją. Przy widoczności **Prywatnie — tylko ja** strona Facebooka i Instagram są pomijane, ponieważ nie ma takiej opcji. Aby sprawdzić również jego kreator, wybierz widoczność publiczną i użyj wyłącznie przycisku sprawdzenia bez publikacji. Przeglądarka musi pozostać uruchomiona.
+7. Pierwszy test wykonaj przyciskiem **Przygotuj filmy — zatwierdzę sam**. Przejdzie on przez formularze, ale zatrzyma się przed publikacją. Przy widoczności **Prywatnie — tylko ja** strona Facebooka i Instagram są pomijane, ponieważ nie ma takiej opcji. Aby sprawdzić również jego kreator, wybierz widoczność publiczną i użyj wyłącznie przycisku sprawdzenia bez publikacji. Przeglądarka musi pozostać uruchomiona.
 
 Każde wspólne ustawienie występuje raz. Podpis „Opcja do…” wskazuje wybrane platformy, na których zostanie zastosowane. „Ustawienie platformy” pozostawia dany przełącznik w stanie zastanym w formularzu. YouTube wyłącza komentarze dla filmów przeznaczonych dla dzieci; wybór komentarzy nadal obowiązuje dla pozostałych platform. Ukrywanie liczników na Instagramie obejmuje także wyświetlenia.
 
@@ -24,6 +24,4 @@ Po podmianie plików rozszerzenia kliknij jego przycisk odświeżenia w `chrome:
 
 Instagram automatycznie zachowuje oryginalne proporcje filmu. TikTok po zakończeniu przygotowania wybiera najbliższy dostępny termin za co najmniej 15 minut (krok 5 minut); nie musisz wpisywać daty ani godziny. Test bez publikacji nie zatwierdza tego harmonogramu.
 
-W zwykłym trybie aplikacja sama zatwierdza końcowe Share na Instagramie, Publish na Facebooku i Schedule na TikToku. „Sprawdź wysyłkę bez publikacji” celowo zatrzymuje się przed tym przyciskiem; ponowienie próby oznaczonej TEST pozostaje testem.
-
-Facebook publikuje wyłącznie na stronie zapisanej w polu „Strona Facebooka do publikacji”. Użyj linku profile.php?id=… . Identyfikator celu widać w panelu i historii. Aplikacja przełącza tożsamość przed wysyłką i sprawdza numer strony, nie samą nazwę. Nie publikuje na profilu osobistym. Starsze próby bez przypisanej strony wymagają nowej wysyłki z zaznaczonym tylko Facebookiem.
+Aplikacja zawsze zatrzymuje się przed końcowym Share / Publish / Schedule, również przy ponawianiu starszych wysyłek. W historii zobaczysz „Czeka na Twoje zatwierdzenie”. Otwórz kartę platformy i zatwierdź publikację ręcznie. Aplikacja nie śledzi wyniku ręcznego kliknięcia. Przed ponownym przygotowaniem sprawdź, czy film nie został już opublikowany. TikTok może wymagać przesunięcia terminu, jeśli poczekasz zbyt długo.

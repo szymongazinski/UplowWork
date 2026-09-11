@@ -78,14 +78,14 @@ test('worker saves scheduling intent, rejects forged completion, protects duplic
   const content=(id,attempt,m)=>new Promise(resolve=>handler({id,attemptId:attempt,platform:'tiktok',...m},sender,resolve));
   const proof=proofFor(earliestSchedule(Date.now()+2000));
   assert.equal((await content(created.id,attemptId,{type:'COMMIT',proof:{...proof,scheduleConfirmed:false}})).ok,false);
-  assert.equal((await content(created.id,attemptId,{type:'COMMIT',proof})).ok,true);
-  const committed=(await getJob(created.id)).targets[0];assert.equal(committed.scheduledAt,proof.scheduledAt);assert.equal(committed.scheduleTime,proof.scheduleTime);assert.ok(committed.committedAt);
-  assert.equal((await content(created.id,attemptId,{type:'FINISH',status:'scheduled',scheduledAt:proof.scheduledAt+60000})).ok,false);
-  assert.equal((await content(created.id,attemptId,{type:'FINISH',status:'published'})).ok,false);
-  assert.equal((await getJob(created.id)).targets[0].status,'committing');
-  assert.equal((await content(created.id,attemptId,{type:'FINISH',status:'scheduled',scheduledAt:proof.scheduledAt,message:'Zaplanowano'})).ok,true);
-  assert.equal((await getJob(created.id)).targets[0].status,'scheduled');assert.equal(await getMedia(request.mediaId),undefined);
-  await assert.rejects(()=>createJob({...first,id:'duplicate-schedule',targets:[{platform:'tiktok',status:'pending'}]}),/już wysyłany/);
+  assert.equal((await content(created.id,attemptId,{type:'COMMIT',proof})).ok,false);
+  await mutateJob(created.id,j=>{j.dryRun=false;return j;}); // Legacy jobs also stop before publishing.
+  assert.equal((await content(created.id,attemptId,{type:'COMMIT',proof})).ok,false);
+  assert.equal((await content(created.id,attemptId,{type:'CHECK',proof})).ok,true);
+  assert.equal((await getJob(created.id)).targets[0].committedAt,undefined);
+  assert.equal((await content(created.id,attemptId,{type:'FINISH',status:'scheduled',scheduledAt:proof.scheduledAt})).ok,false);
+  assert.equal((await content(created.id,attemptId,{type:'FINISH',status:'draft'})).ok,true);
+  assert.ok(await getMedia(request.mediaId));
 
   await saveMedia('dry-scheduled-source',source);
   const dry=await panel({...request,mediaId:'dry-scheduled-source',dryRun:true});assert.equal(dry.ok,true,dry.error);

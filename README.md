@@ -2,11 +2,11 @@
 
 Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube Shorts**. Lokalny panel jako rozszerzenie Chrome lub Edge, bez abonamentu i bez dodatkowego serwera.
 
-**Wersja eksperymentalna 0.1.10.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
+**Wersja eksperymentalna 0.1.11.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
 
 ## Instalacja bez programowania
 
-1. Pobierz **UplowWork-v0.1.10.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
+1. Pobierz **UplowWork-v0.1.11.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
 2. W Chrome otwórz `chrome://extensions`, a w Edge `edge://extensions`.
 3. Włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż folder **UplowWork**, który zawiera `manifest.json`.
 4. Panel otworzy się po instalacji. Kliknij **Połącz wszystkie** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
@@ -44,11 +44,13 @@ Ustawienie strony pozostaje lokalne. Publiczna paczka nie ma wybranej strony; in
 
 ## Sprawdzanie bez publikacji
 
-Przycisk **Sprawdź wysyłkę bez publikacji** uruchamia ten sam kod obsługi formularzy: przesyła film, uzupełnia opis, ustawia wybraną widoczność i sprawdza pozostałe opcje. Zatrzymuje się przed kliknięciem publikacji. Tryb testowy ma również blokadę publikacji w service workerze. Plik trafia do wybranych serwisów; na ich stronach może pozostać nieopublikowany formularz lub szkic. W historii taki przebieg jest oznaczony **TEST BEZ PUBLIKACJI**. Ponowienie tego przebiegu również jest testem.
+Przycisk **Przygotuj filmy — zatwierdzę sam** uruchamia ten sam kod obsługi formularzy: przesyła film, uzupełnia opis, ustawia wybraną widoczność i sprawdza pozostałe opcje. Zatrzymuje się przed kliknięciem publikacji. Automatyczne publikowanie jest również zablokowane w service workerze. Plik trafia do wybranych serwisów; na ich stronach może pozostać nieopublikowany formularz lub szkic. W historii taki przebieg jest oznaczony **RĘCZNE ZATWIERDZENIE**. Ponowienie również zatrzyma się przed końcowym przyciskiem.
 
 Instagram rozpoznaje angielskie pole „Add a caption...” i „Advanced Settings”. W kroku kadrowania automatycznie wybiera **Oryginał** i sprawdza proporcje oraz brak przycięcia obrazu, również na końcowym ekranie rolki. Pionowy film nie pozostaje w domyślnym kwadratowym kadrze.
 
-Wersja 0.1.10 poprawia końcowe zatwierdzanie po przebudowaniu formularza przez platformę. W zwykłym trybie Instagram naciska aktualny **Share**, Facebook **Publish**, a TikTok **Schedule**. Kod ponownie sprawdza opis, widoczność i kadr Instagrama lub termin TikToka po odpowiedzi kolejki, a następnie klika raz. Zmiana tych danych zatrzymuje wysyłkę. Przycisk testowy nadal kończy się bez kliknięcia publikacji.
+Wersja 0.1.11 przygotowuje formularze i zawsze zatrzymuje się przed końcowym przyciskiem **Share / Publish / Schedule**. Użytkownik zatwierdza każdą platformę ręcznie w jej karcie. Dotyczy to również ponowień starszych wysyłek; kolejka odrzuca automatyczne zatwierdzenie publikacji. Dodano pauzy: 3 sekundy po przekazaniu filmu, po 1 sekundzie przed i po przejściu etapu oraz 1,5 sekundy przed końcowym sprawdzeniem. Kod nadal czeka na rzeczywistą gotowość elementów formularza. Pauzy nie gwarantują usunięcia błędów platform.
+
+Przycisk **Przygotuj filmy — zatwierdzę sam** zastępuje automatyczne publikowanie. Status **Czeka na Twoje zatwierdzenie** oznacza przygotowany formularz, a nie opublikowany film. Jeśli ręcznie zatwierdzisz TikToka dopiero później, może być konieczne przesunięcie terminu planowania. Aplikacja nie potwierdza wyniku ręcznego kliknięcia; przed ponownym przygotowaniem sprawdź platformę, aby nie utworzyć duplikatu.
 
 TikTok domyślnie używa **Zaplanuj**. Aplikacja po przygotowaniu filmu wybiera najbliższy lokalny termin oddalony o co najmniej 15 minut, zaokrąglony do dostępnego kroku 5 minut (zwykle 15–20 minut). Sprawdza odczytaną datę, godzinę, strefę i widoczność; ponowienie TikToka też oblicza nowy termin. Brak harmonogramu lub odrzucony termin zatrzymuje tę platformę. Nie przełącza się samoczynnie na „Teraz”. [TikTok opisuje minimum 15 minut w dokumentacji planowania](https://ads.tiktok.com/business/en-US/blog/introducing-video-scheduler-now-you-can-plan-tiktoks-in-advance).
 
