@@ -1,7 +1,7 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.11';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.12';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
@@ -41,14 +41,41 @@
  }
  async function cover(job,platform){
   if(!job.thumbnail?.platforms.includes(platform))return {};
+  if(platform==='tiktok')return tiktokCover(job);
   step('Ustawianie miniatury '+platform+'.');
-  if(platform==='tiktok')click(await wait(()=>exactText(/^(Edytuj okładkę|Edit cover)$/),'edycja okładki TikToka'));
   const input=await wait(()=>{const hits=[...document.querySelectorAll('input[type="file"]')].filter(e=>/image\/(jpeg|png|\*)/i.test(e.getAttribute('accept')||'')&&!/video/i.test(e.getAttribute('accept')||''));return hits.length===1?hits[0]:null;},'pole własnej miniatury. Jeśli konto go nie udostępnia, użyj domyślnej okładki platformy',15000);
   const parts=[];for(let offset=0;offset<job.thumbnail.size;){const r=await send(job,platform,'CHUNK',{asset:'thumbnail',offset});const bytes=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));if(!bytes.length)throw new Error('Niepełna miniatura.');parts.push(bytes);offset+=bytes.length;}
   const beforeImages=new Set(all('img,[style]').map(e=>e.getAttribute('src')||e.getAttribute('style')).filter(Boolean));
   const f=new File(parts,job.thumbnail.mime==='image/png'?'miniatura.png':'miniatura.jpg',{type:job.thumbnail.mime}),dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));
   await wait(()=>all('img,[style]').some(e=>{const value=e.getAttribute('src')||e.getAttribute('style')||'';return /blob:|data:image/.test(value)&&!beforeImages.has(value);}), 'podgląd wybranej miniatury',30000);
-  if(platform==='tiktok'){await press(/^(Zapisz|Save)$/);await wait(()=>!control(/^(Upload cover image|Uploaded cover image)$/)&&!!editable('combobox'),'zapis okładki TikToka');}
+  return {thumbnailConfirmed:true};
+ }
+
+ async function tiktokCover(job){
+  const mainCover=()=>all('.cover-container img.cover-image').find(e=>e.complete&&e.naturalWidth>0);
+  const previous=mainCover()?.getAttribute('src');
+  click(await wait(()=>exactText(/^(Edytuj okładkę|Edit cover)$/),'edycja okładki TikToka'));
+  const picker=()=>{
+   const area=control(/^Upload cover image$/);if(!area)return null;
+   const inputs=[...area.querySelectorAll('input[type="file"]')].filter(e=>e.isConnected&&!e.disabled&&/image/.test(e.accept||e.getAttribute('accept')||''));
+   return inputs.length===1?inputs[0]:null;
+  };
+  await wait(picker,'pole obrazu okładki TikToka');
+  const parts=[];for(let offset=0;offset<job.thumbnail.size;){
+   const r=await send(job,'tiktok','CHUNK',{asset:'thumbnail',offset}),bytes=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));
+   if(!bytes.length||bytes.length!==r.length||offset+bytes.length>job.thumbnail.size)throw new Error('Niepełny plik okładki TikToka.');
+   parts.push(bytes);offset+=bytes.length;
+  }
+  const file=new File(parts,job.thumbnail.mime==='image/png'?'miniatura.png':'miniatura.jpg',{type:job.thumbnail.mime});
+  if(file.size!==job.thumbnail.size)throw new Error('Niepełny plik okładki TikToka.');
+  const input=await wait(picker,'aktualne pole okładki TikToka'),dt=new DataTransfer();dt.items.add(file);input.files=dt.files;
+  input.dispatchEvent(new Event('change',{bubbles:true}));
+  const uploaded=()=>all('img[alt="Uploaded cover image"]').find(e=>e.complete&&e.naturalWidth>0&&e.naturalHeight>0);
+  await wait(uploaded,'pełne załadowanie obrazu okładki TikToka',60000);
+  await pause(1500,'Oczekiwanie na przygotowanie okładki TikToka');
+  if(!uploaded())throw new Error('Podgląd okładki TikToka zniknął przed zapisaniem.');
+  await press(/^(Zapisz|Save)$/);
+  await wait(()=>!control(/^(Upload cover image|Uploaded cover image)$/)&&!!editable('combobox')&&mainCover()?.getAttribute('src')!==previous&&!!mainCover(),'zapis i przetworzenie nowej okładki TikToka',120000);
   return {thumbnailConfirmed:true};
  }
 

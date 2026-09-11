@@ -64,6 +64,14 @@
  }
  function videoInput(platform,root=document){
   const accepts=e=>!e.disabled&&/video|mp4|mov|webm/i.test(e.getAttribute('accept')||'');
+  if(platform==='youtube'){
+   // Studio's native Filedata picker intentionally has no accept attribute
+   // and is hidden. Scope by its visible upload component, not by MIME hints.
+   const pickers=Array.from(root.querySelectorAll('ytcp-uploads-file-picker')).filter(visible);
+   if(pickers.length!==1)return null;
+   const hits=Array.from(pickers[0].querySelectorAll('input[type="file"][name="Filedata"]')).filter(e=>!e.disabled);
+   return hits.length===1?hits[0]:null;
+  }
   if(platform==='facebook'){
    // Facebook mounts two reel inputs outside its dialog, plus an unrelated post input.
    const forms=Array.from(root.querySelectorAll('[role="form"][aria-label="Rolki"],[role="form"][aria-label="Reels"]')).filter(visible);

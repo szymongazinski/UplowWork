@@ -36,7 +36,7 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  const job={id:'offline-fixture',attemptId:'attempt',dryRun,filename:'fixture.mp4',mime:'video/mp4',lastModified:1700000000000,size:bytes.length,caption:scenario.caption||'Opis testowy',title:'Film',privacy:'public',kids:false,options:scenario.options||{},meta:scenario.meta||{width:720,height:1280,duration:6},digest};
  if(platform==='facebook'&&!scenario.noPage)job.facebookPage={id:'123456789012345',url:'https://www.facebook.com/profile.php?id=123456789012345'};
  if(scenario.schedule)job.tiktokSchedule='auto15';
- if(scenario.thumbnail)job.thumbnail={size:coverBytes.length,mime:'image/png',platforms:['facebook']};
+ if(scenario.thumbnail)job.thumbnail={size:coverBytes.length,mime:'image/png',platforms:[platform]};
  const wireFile=next=>{const input=by('file');input.addEventListener('input',()=>{changes++;});input.addEventListener('change',()=>{if(!input.isConnected){detachedChanges++;return;}changes++;deliveredFiles.push(...input.files);next();});};
  const wirePublish=()=>{const button=by('publish');button.addEventListener('click',()=>{if(!button.isConnected){detachedPublishClicks++;return;}publishClicks++;put(platform==='facebook'?'Your reel is processing':platform==='tiktok'?'<div role="status">Your video has been scheduled</div>':'Your reel has been shared');});};
  const mutateFinalForm=boundary=>{
@@ -82,9 +82,21 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
    by('done').addEventListener('click',()=>{assert.equal(by('public').getAttribute('aria-checked'),'true');modal.remove();by('audience').textContent='Publiczne Każdy na Facebooku i poza nim';});
   });wirePublish();
  };
+ let tiktokCoverSaved=false;
  const tiktokUploaded=()=>{
   if(!scenario.acceptUpload){put('<div role="alert">Something went wrong</div>');return;}
   put('<p>Uploaded</p><div id="caption" role="combobox" contenteditable="true"></div><button id="privacy" role="combobox">Everyone</button><button id="publish">Post</button>');
+  if(scenario.thumbnail){
+   const row=document.createElement('div');row.className='cover-container';row.innerHTML='<img id="tt-cover" class="cover-image" src="'+(tiktokCoverSaved?'blob:custom-cover':'blob:default-cover')+'"><button id="tt-edit">Edit cover</button>';document.body.append(row);by('tt-cover').complete=true;by('tt-cover').naturalWidth=720;
+   by('tt-edit').addEventListener('click',()=>{
+    put('<input type="file" accept="image/*"><label role="button" aria-label="Upload cover image"><input id="tt-cover-file" type="file" accept="image/png" aria-hidden="true"></label><button id="tt-save">Save</button>');
+    by('tt-cover-file').addEventListener('change',()=>{
+     coverChanges++;deliveredCovers.push(...by('tt-cover-file').files);const img=document.createElement('img');img.alt='Uploaded cover image';img.src='blob:custom-cover';img.complete=false;img.naturalWidth=0;img.naturalHeight=0;document.body.append(img);
+     if(!scenario.rejectCover)setTimeout(()=>{img.complete=true;img.naturalWidth=720;img.naturalHeight=1280;},30);
+    });
+    by('tt-save').addEventListener('click',()=>{assert.ok(document.querySelector('img[alt="Uploaded cover image"]').complete,'must wait for decoded cover');coverSaves++;tiktokCoverSaved=!scenario.loseCoverOnSave;tiktokUploaded();});
+   });
+  }
   by('privacy').addEventListener('click',()=>{const option=document.createElement('div');option.setAttribute('role','option');option.textContent='Everyone';document.body.append(option);option.addEventListener('click',()=>option.remove());});wirePublish();
   if(scenario.schedule){
    const radio=document.createElement('input');radio.type='radio';radio.name='postSchedule';radio.value='schedule';radio.setAttribute('aria-checked','false');document.body.append(radio);
@@ -103,6 +115,19 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  const tiktokUpload=()=>{put('<input id="file" type="file" accept="video/*"><button>Wybierz filmy</button>');wireFile(tiktokUploaded);};
  if(platform==='tiktok'){
   tiktokUpload();
+ }else if(platform==='youtube'){
+  put('<button id="upload-icon">Prześlij filmy</button>');
+  by('upload-icon').addEventListener('click',()=>{
+   put('<input type="file" accept="image/*"><ytcp-uploads-file-picker><input id="file" name="Filedata" type="file" aria-hidden="true"></ytcp-uploads-file-picker>');
+   wireFile(()=>{
+    put('<div role="dialog"><div id="title" contenteditable="true" aria-label="Dodaj tytuł"></div><div id="caption" contenteditable="true" aria-label="Opowiedz widzom"></div><button id="kids" role="radio" aria-checked="false">Nieprzeznaczony dla dzieci</button><button id="visibility" role="tab">Widoczność</button><div id="final"></div></div>');
+    by('kids').addEventListener('click',()=>by('kids').setAttribute('aria-checked','true'));
+    by('visibility').addEventListener('click',()=>{
+     by('final').innerHTML='<button id="public" role="radio" aria-checked="false">Publiczny</button><a href="https://youtube.com/shorts/test123">Link do filmu</a><button id="publish">Opublikuj</button>';
+     by('public').addEventListener('click',()=>by('public').setAttribute('aria-checked','true'));wirePublish();
+    });
+   });
+  });
  }else if(platform==='facebook'){
   if(scenario.switchPage){
    put('<nav aria-label="Nawigacja po stronie"><h1>Zarządzanie stroną</h1><button id="switch-page">Przełącz</button></nav>');
@@ -161,7 +186,7 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  }}}};
  runInNewContext(helper,context);runInNewContext(pageModule,context);runInNewContext(scheduleModule,context);runInNewContext(scheduleUI,context);runInNewContext(runner,context);
  receive({type:'RUN',job,platform},{id:'fixture'},()=>{});
- const result=await Promise.race([finished,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Runner did not finish fixture')),2000);timer.unref();})]);
+ const result=await Promise.race([finished,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Runner did not finish fixture')),5000);timer.unref();})]);
  return {result,messages,publishClicks,detachedPublishClicks,publishReplacements,composerReplacements,clockJumps,scheduleActivations,scheduledTimes,changes,detachedChanges,createClicks,originalClicks,pointerDown,deliveredFiles,coverChanges,coverSaves,deliveredCovers};
 }
 
@@ -348,4 +373,17 @@ test('Facebook rechecks numeric Page ID across ready and handoff even when displ
 
 test('Facebook switches using the target Page management panel before any upload and hands off for reload',async()=>{
  const r=await flow('facebook',true,false,{personalActor:true,switchPage:true});assert.equal(r.result.status,'handoff');assert.equal(r.changes,0);assert.equal(r.publishClicks,0);assert.equal(r.messages.filter(m=>m.type==='FACEBOOK_SWITCH').length,1);assert.equal(r.messages.find(m=>m.type==='FACEBOOK_SWITCH').pageId,'123456789012345');assert.ok(!r.messages.some(m=>m.type==='COMMIT'||m.type==='CHECK'));
+});
+
+test('YouTube receives the complete video in Filedata without accept and stops before Publish',async()=>{
+ const r=await flow('youtube',false);assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.changes,1);assert.equal(await r.deliveredFiles[0].text(),'verified video bytes');assert.equal(r.publishClicks,0);assert.ok(r.messages.some(m=>m.type==='CHECK'));
+});
+
+test('TikTok waits for the decoded custom image and saved main cover before handing off',async()=>{
+ const r=await flow('tiktok',false,false,{acceptUpload:true,thumbnail:true});assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.coverChanges,1);assert.equal(r.coverSaves,1);assert.equal(await r.deliveredCovers[0].text(),'distinct thumbnail bytes');assert.equal(r.publishClicks,0);
+});
+test('TikTok never saves an undecoded custom cover or accepts the unchanged default cover',async()=>{
+ for(const key of ['rejectCover','loseCoverOnSave']){
+  const r=await flow('tiktok',false,false,{acceptUpload:true,thumbnail:true,[key]:true});assert.equal(r.result.status,'blocked',r.result.message);assert.equal(r.publishClicks,0);assert.ok(!r.messages.some(m=>m.type==='CHECK'));if(key==='rejectCover')assert.equal(r.coverSaves,0);
+ }
 });

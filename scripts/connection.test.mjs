@@ -6,6 +6,13 @@ import {parseHTML} from 'linkedom';
 
 const helpers=readFileSync(new URL('../extension/dom.js',import.meta.url),'utf8');
 const runner=readFileSync(new URL('../extension/runner.js',import.meta.url),'utf8');
+
+test('YouTube selects its hidden Filedata picker without accept and ignores other attachments',()=>{
+ const p=page('<input type="file" accept="video/*"><ytcp-uploads-file-picker><input id="yt" name="Filedata" type="file" aria-hidden="true" hidden></ytcp-uploads-file-picker>');
+ assert.equal(p.dom.videoInput('youtube')?.id,'yt');
+ assert.equal(page('<input name="Filedata" type="file">').dom.videoInput('youtube'),null);
+ assert.equal(page('<ytcp-uploads-file-picker hidden><input name="Filedata" type="file"></ytcp-uploads-file-picker>').dom.videoInput('youtube'),null);
+});
 function page(html){
  const {document}=parseHTML('<html><body>'+html+'</body></html>');
  for(const e of document.querySelectorAll('*'))e.getClientRects=()=>e.hasAttribute('hidden')?[]:[{}];
