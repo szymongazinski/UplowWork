@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 
 export default function ThumbnailPicker({src,disabled,selected,onChange}){
  const [mode,setMode]=useState('platform'),[image,setImage]=useState(null),[preview,setPreview]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(false),[time,setTime]=useState(0);
- const [targets,setTargets]=useState(['tiktok','instagram','youtube']);
+ const [targets,setTargets]=useState(['tiktok','facebook','instagram','youtube']);
  const generation=useRef(0),callback=useRef(onChange);callback.current=onChange;
  useEffect(()=>{setImage(null);setMode('platform');setError('');},[src]);
  useEffect(()=>{callback.current({blob:image,mode,time,pending:mode!=='platform'&&!image,platforms:targets.filter(p=>selected.includes(p))});},[image,mode,time,targets,selected]);
@@ -24,7 +24,7 @@ export default function ThumbnailPicker({src,disabled,selected,onChange}){
   {mode==='custom'&&<input aria-label="Wybierz miniaturę" type="file" accept="image/jpeg,image/png" disabled={disabled} onChange={e=>custom(e.target.files[0])}/>}
   {loading&&<p className="small" role="status">Wybieram klatkę ze środka filmu…</p>}
   {preview&&<div className="thumbnail-preview"><img src={preview} alt="Wybrana miniatura filmu"/><div><strong>{mode==='middle'?`Klatka z ${time.toFixed(1)} s`:'Własna miniatura'}</strong><a href={preview} download={mode==='middle'?'miniatura.jpg':'miniatura.'+(image.type==='image/png'?'png':'jpg')}>Pobierz miniaturę</a></div></div>}
-  {mode!=='platform'&&<><p className="option-scope">Zastosuj tę miniaturę do:</p><div className="thumbnail-targets">{selected.map(p=><label key={p}><input type="checkbox" checked={targets.includes(p)} disabled={disabled||p==='facebook'} onChange={e=>setTargets(t=>e.target.checked?[...t,p]:t.filter(x=>x!==p))}/>{labels[p]}{p==='facebook'?' — domyślna okładka':''}</label>)}</div><p className="small">Sprawdzony kreator Facebook Reels nie udostępnia własnej okładki. Jeśli formularz innego konta jej nie udostępnia, wysyłka tej platformy zatrzyma się przed publikacją. Możesz pobrać obraz i ustawić go ręcznie. Dostępność miniatur Shorts zależy od konta YouTube.</p></>}
+  {mode!=='platform'&&<><p className="option-scope">Zastosuj tę miniaturę do:</p><div className="thumbnail-targets">{selected.map(p=><label key={p}><input type="checkbox" checked={targets.includes(p)} disabled={disabled} onChange={e=>setTargets(t=>e.target.checked?[...t,p]:t.filter(x=>x!==p))}/>{labels[p]}</label>)}</div><p className="small">Facebook zapisuje wybrany obraz w edytorze miniatury rolki. Jeśli formularz konta nie udostępnia własnej okładki, wysyłka tej platformy zatrzyma się przed publikacją. Możesz pobrać obraz i ustawić go ręcznie. Dostępność miniatur Shorts zależy od konta YouTube.</p></>}
   {error&&<p className="error" role="alert">{error}</p>}
  </div>;
 }

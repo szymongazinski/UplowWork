@@ -20,15 +20,17 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  let selected;document.createRange=()=>({selectNodeContents(e){selected=e;}});window.getSelection=()=>({removeAllRanges(){},addRange(){}});document.execCommand=(cmd,ui,value)=>{selected.replaceChildren(...String(value).split('\n').flatMap((line,i)=>i?[document.createElement('br'),document.createTextNode(line)]:[document.createTextNode(line)]));return true;};
  const put=html=>{document.body.innerHTML=(platform==='facebook'&&!scenario.personalActor?'<nav aria-label="Facebook"><a id="actor" href="/'+(scenario.wrongPage?'999999999999999':'123456789012345')+'/ad_center/">Centrum reklam</a></nav>':'')+html;};const by=id=>document.getElementById(id);
  let publishClicks=0,detachedPublishClicks=0,publishReplacements=0,composerReplacements=0,clockJumps=0,scheduleActivations=0,changes=0,detachedChanges=0,createClicks=0,originalClicks=0,pointerDown=false,receive,finish;const messages=[],deliveredFiles=[],scheduledTimes=[];
- const finished=new Promise(resolve=>{finish=resolve;});const bytes=Buffer.from('verified video bytes');
+ const finished=new Promise(resolve=>{finish=resolve;});const bytes=Buffer.from('verified video bytes'),coverBytes=Buffer.from('distinct thumbnail bytes');let coverChanges=0,coverSaves=0;const deliveredCovers=[];
  const digest=Buffer.from(await webcrypto.subtle.digest('SHA-256',bytes)).toString('hex');
  const job={id:'offline-fixture',attemptId:'attempt',dryRun,filename:'fixture.mp4',mime:'video/mp4',lastModified:1700000000000,size:bytes.length,caption:scenario.caption||'Opis testowy',title:'Film',privacy:'public',kids:false,options:scenario.options||{},meta:scenario.meta||{width:720,height:1280,duration:6},digest};
  if(platform==='facebook'&&!scenario.noPage)job.facebookPage={id:'123456789012345',url:'https://www.facebook.com/profile.php?id=123456789012345'};
  if(scenario.schedule)job.tiktokSchedule='auto15';
+ if(scenario.thumbnail)job.thumbnail={size:coverBytes.length,mime:'image/png',platforms:['facebook']};
  const wireFile=next=>{const input=by('file');input.addEventListener('input',()=>{changes++;});input.addEventListener('change',()=>{if(!input.isConnected){detachedChanges++;return;}changes++;deliveredFiles.push(...input.files);next();});};
  const wirePublish=()=>{const button=by('publish');button.addEventListener('click',()=>{if(!button.isConnected){detachedPublishClicks++;return;}publishClicks++;put(platform==='facebook'?'Your reel is processing':platform==='tiktok'?'<div role="status">Your video has been scheduled</div>':'Your reel has been shared');});};
  const mutateFinalForm=boundary=>{
   if(scenario.changeActorOn===boundary)by('actor').setAttribute('href','/999999999999999/ad_center/');
+  if(scenario.changeCoverOn===boundary)by('saved-cover').setAttribute('src','blob:replaced-cover');
   if(scenario.expireScheduleOn===boundary&&!clockJumps){
    const current=context.UplowWorkSchedule.readSchedule(by('schedule-date').value,by('schedule-time').value);
    clock=current.timestamp-15*60000+1-clockBase;clockJumps++;
@@ -46,8 +48,22 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
   if(scenario.changeCropOn===boundary)by('final-video').getBoundingClientRect=()=>({left:0,top:0,right:320,bottom:320,width:320,height:320});
  };
  const caption='<div id="caption" role="textbox" contenteditable="true" aria-label="Dodaj opis..."></div>';
- const fbSettings=()=>{
-  put('<div role="dialog" aria-label="Ustawienia rolki"><h2>Ustawienia rolki</h2>'+caption+'<button id="audience">Publiczne Każdy na Facebooku i poza nim</button><button id="publish">Opublikuj</button></div>');
+ const wireCoverInput=()=>{
+  const input=by('cover-file');if(!input)return;
+  input.addEventListener('change',()=>{
+   assert.ok(input.isConnected,'cover input must survive transfer');coverChanges++;deliveredCovers.push(...input.files);
+   if(scenario.rejectCover){const decoy=document.createElement('img');decoy.src='blob:unrelated';document.body.append(decoy);return;}
+   const preview=document.createElement('img');preview.id='uploaded-cover';preview.alt='Podgląd obrazu przesłanej miniatury niestandardowej';preview.src='blob:custom-cover';preview.complete=true;preview.naturalWidth=720;by('cover-editor').append(preview);
+  });
+ };
+ const fbSettings=(saved=false)=>{
+  put('<input type="file" accept="image/*"><div role="dialog" aria-label="Ustawienia rolki"><h2>Ustawienia rolki</h2><button id="edit-cover">Edytuj</button>'+(saved?'<img id="saved-cover" src="blob:custom-cover">':'')+caption+'<button id="audience">Publiczne Każdy na Facebooku i poza nim</button><button id="publish">Opublikuj</button><button id="save-draft">Zapisz</button></div>');
+  if(saved){by('saved-cover').complete=true;by('saved-cover').naturalWidth=720;}
+  by('save-draft').addEventListener('click',()=>assert.fail('must never save a draft instead of the thumbnail'));
+  by('edit-cover').addEventListener('click',()=>{
+   put('<input type="file" accept="image/*"><div role="dialog" id="cover-editor"><section aria-hidden="true"><h2>Ustawienia rolki</h2><input type="file" accept=".png,.jpg,.jpeg"><button>Zapisz</button></section><h2>Edytuj miniaturę</h2>'+(scenario.noCoverInput?'':'<input id="cover-file" type="file" accept=".png,.jpg,.jpeg">')+'<button id="save-cover">Zapisz</button><button>Anuluj</button></div>');
+   wireCoverInput();by('save-cover').addEventListener('click',()=>{coverSaves++;fbSettings(!scenario.loseCoverOnSave);});
+  });
   by('audience').addEventListener('click',()=>{
    const modal=document.createElement('div');modal.setAttribute('role','dialog');modal.setAttribute('aria-label','Wybierz grupę odbiorców');
    modal.innerHTML='<label>Publiczne Każdy na Facebooku i poza nim<input id="public" type="radio" aria-checked="false"></label><label>Znajomi Twoi znajomi na Facebooku<input type="radio" aria-checked="true"></label><button id="done">Gotowe</button>';document.body.append(modal);
@@ -83,7 +99,7 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
   }else{
   put('<button id="menu">Menu Facebooka</button>');by('menu').addEventListener('click',()=>{put('<div role="dialog"><button id="reel">Rolka</button></div>');by('reel').addEventListener('click',()=>{
    put('<h2>Utwórz rolkę</h2><input type="file" accept="image/*,video/*"><div role="form" aria-label="Rolki"><input id="file" type="file" accept="video/*"></div><input type="file" accept="video/*"><button id="next" disabled>Dalej</button>');
-   wireFile(()=>by('next').removeAttribute('disabled'));by('next').addEventListener('click',()=>{put('<h2>Edytuj rolkę</h2><button id="next">Dalej</button>');by('next').addEventListener('click',fbSettings);});
+   wireFile(()=>by('next').removeAttribute('disabled'));by('next').addEventListener('click',()=>{put('<h2>Edytuj rolkę</h2><button id="next">Dalej</button>');by('next').addEventListener('click',()=>fbSettings());});
   });});
   }
  }else{
@@ -120,7 +136,13 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  let clock=0;const clockBase=scenario.clockBase??Date.now();class FastDate extends Date{static now(){return clockBase+(clock+=scenario.schedule?1:1000);}}
  class Transfer{constructor(){this.files=[];this.items={add:f=>this.files.push(f)};}}
  const context={document,window,URL,File,DataTransfer:Transfer,Event:window.Event,MouseEvent:window.Event,PointerEvent:window.Event,HTMLTextAreaElement:window.HTMLTextAreaElement,HTMLInputElement:window.HTMLInputElement,Date:FastDate,getComputedStyle:()=>({visibility:'visible'}),crypto:webcrypto,Uint8Array,atob:s=>Buffer.from(s,'base64').toString('binary'),setTimeout:(fn,ms)=>setTimeout(fn,Math.min(ms,1)),clearTimeout,setInterval:()=>1,clearInterval(){},location:{pathname:'/',href:'https://www.facebook.com/profile.php?id=123456789012345'},chrome:{runtime:{id:'fixture',onMessage:{addListener(fn){receive=fn;}},sendMessage:async m=>{
-  messages.push(m);if(m.type==='CHUNK'){if(scenario.rerenderUpload)tiktokUpload();return {ok:true,data:(corrupt?Buffer.alloc(bytes.length,1):bytes).toString('base64'),length:bytes.length};}
+  messages.push(m);if(m.type==='CHUNK'){
+   if(m.asset==='thumbnail'){
+    if(scenario.remountCoverInput){by('cover-file').replaceWith(by('cover-file').cloneNode(true));wireCoverInput();}
+    const chunk=scenario.corruptCoverChunk?Buffer.alloc(coverBytes.length+1):coverBytes;
+    return {ok:true,data:chunk.toString('base64'),length:chunk.length};
+   }
+   if(scenario.rerenderUpload)tiktokUpload();return {ok:true,data:(corrupt?Buffer.alloc(bytes.length,1):bytes).toString('base64'),length:bytes.length};}
   if(m.type==='PROGRESS'&&m.status==='ready')mutateFinalForm('ready');
   if(m.type==='CHECK')assertCommit({...job,dryRun:false},{platform,status:'ready'},m.proof,FastDate.now());
   if(m.type==='COMMIT'){assertCommit(job,{platform,status:'ready'},m.proof,FastDate.now());mutateFinalForm('commit');}
@@ -129,8 +151,29 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  runInNewContext(helper,context);runInNewContext(pageModule,context);runInNewContext(scheduleModule,context);runInNewContext(scheduleUI,context);runInNewContext(runner,context);
  receive({type:'RUN',job,platform},{id:'fixture'},()=>{});
  const result=await Promise.race([finished,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Runner did not finish fixture')),2000);timer.unref();})]);
- return {result,messages,publishClicks,detachedPublishClicks,publishReplacements,composerReplacements,clockJumps,scheduleActivations,scheduledTimes,changes,detachedChanges,createClicks,originalClicks,pointerDown,deliveredFiles};
+ return {result,messages,publishClicks,detachedPublishClicks,publishReplacements,composerReplacements,clockJumps,scheduleActivations,scheduledTimes,changes,detachedChanges,createClicks,originalClicks,pointerDown,deliveredFiles,coverChanges,coverSaves,deliveredCovers};
 }
+
+test('Facebook uploads thumbnail bytes in final settings, saves and verifies the cover, including a replaced input',async()=>{
+ for(const remountCoverInput of [false,true]){
+  const r=await flow('facebook',true,false,{thumbnail:true,remountCoverInput});
+  assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.coverChanges,1);assert.equal(r.coverSaves,1);assert.equal(r.publishClicks,0);
+  assert.equal(await r.deliveredCovers[0].text(),'distinct thumbnail bytes');assert.equal(r.deliveredCovers[0].name,'miniatura.png');
+  assert.ok(r.messages.some(m=>m.type==='CHECK'&&m.proof.thumbnailConfirmed));
+ }
+});
+test('Facebook rejects unavailable, failed, incomplete or unsaved requested covers before publication',async()=>{
+ for(const key of ['noCoverInput','rejectCover','corruptCoverChunk','loseCoverOnSave']){
+  const r=await flow('facebook',false,false,{thumbnail:true,[key]:true});
+  assert.equal(r.publishClicks,0,key);assert.ok(!r.messages.some(m=>m.type==='COMMIT'),key);assert.notEqual(r.result.status,'submitted',key);
+ }
+});
+test('Facebook rechecks saved cover at ready and commit boundaries',async()=>{
+ for(const changeCoverOn of ['ready','commit']){
+  const r=await flow('facebook',false,false,{thumbnail:true,changeCoverOn});assert.equal(r.publishClicks,0);assert.match(r.result.message,/miniatury/);
+ }
+ const r=await flow('facebook',false,false,{thumbnail:true});assert.equal(r.result.status,'submitted',r.result.message);assert.equal(r.publishClicks,1);assert.equal(r.coverSaves,1);
+});
 
 test('Facebook Page runner verifies page identity and Public audience, then stops before publication in test mode',async()=>{
  const r=await flow('facebook');assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishClicks,0);assert.equal(r.changes,1);assert.ok(r.messages.some(m=>m.type==='CHECK'&&m.proof.privacy==='public'));assert.ok(!r.messages.some(m=>m.type==='COMMIT'));

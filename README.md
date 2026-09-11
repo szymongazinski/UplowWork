@@ -2,11 +2,11 @@
 
 Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube Shorts**. Lokalny panel jako rozszerzenie Chrome lub Edge, bez abonamentu i bez dodatkowego serwera.
 
-**Wersja eksperymentalna 0.1.9.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
+**Wersja eksperymentalna 0.1.10.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
 
 ## Instalacja bez programowania
 
-1. Pobierz **UplowWork-v0.1.9.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
+1. Pobierz **UplowWork-v0.1.10.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
 2. W Chrome otwórz `chrome://extensions`, a w Edge `edge://extensions`.
 3. Włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż folder **UplowWork**, który zawiera `manifest.json`.
 4. Panel otworzy się po instalacji. Kliknij **Połącz wszystkie** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
@@ -48,7 +48,7 @@ Przycisk **Sprawdź wysyłkę bez publikacji** uruchamia ten sam kod obsługi fo
 
 Instagram rozpoznaje angielskie pole „Add a caption...” i „Advanced Settings”. W kroku kadrowania automatycznie wybiera **Oryginał** i sprawdza proporcje oraz brak przycięcia obrazu, również na końcowym ekranie rolki. Pionowy film nie pozostaje w domyślnym kwadratowym kadrze.
 
-Wersja 0.1.9 poprawia końcowe zatwierdzanie po przebudowaniu formularza przez platformę. W zwykłym trybie Instagram naciska aktualny **Share**, Facebook **Publish**, a TikTok **Schedule**. Kod ponownie sprawdza opis, widoczność i kadr Instagrama lub termin TikToka po odpowiedzi kolejki, a następnie klika raz. Zmiana tych danych zatrzymuje wysyłkę. Przycisk testowy nadal kończy się bez kliknięcia publikacji.
+Wersja 0.1.10 poprawia końcowe zatwierdzanie po przebudowaniu formularza przez platformę. W zwykłym trybie Instagram naciska aktualny **Share**, Facebook **Publish**, a TikTok **Schedule**. Kod ponownie sprawdza opis, widoczność i kadr Instagrama lub termin TikToka po odpowiedzi kolejki, a następnie klika raz. Zmiana tych danych zatrzymuje wysyłkę. Przycisk testowy nadal kończy się bez kliknięcia publikacji.
 
 TikTok domyślnie używa **Zaplanuj**. Aplikacja po przygotowaniu filmu wybiera najbliższy lokalny termin oddalony o co najmniej 15 minut, zaokrąglony do dostępnego kroku 5 minut (zwykle 15–20 minut). Sprawdza odczytaną datę, godzinę, strefę i widoczność; ponowienie TikToka też oblicza nowy termin. Brak harmonogramu lub odrzucony termin zatrzymuje tę platformę. Nie przełącza się samoczynnie na „Teraz”. [TikTok opisuje minimum 15 minut w dokumentacji planowania](https://ads.tiktok.com/business/en-US/blog/introducing-video-scheduler-now-you-can-plan-tiktoks-in-advance).
 
@@ -64,7 +64,7 @@ Testy offline uruchamiają rzeczywisty runner na formularzach testowych do etapu
 
 W historii kliknij **Ponów tylko TikTok / Facebook / Instagram / YouTube**. Plik po błędzie pozostaje na komputerze. Gdy poprzednia próba mogła już opublikować film, najpierw otwórz platformę i zaznacz, że sprawdziłeś brak publikacji. Jeśli stara wersja usunęła plik, wybierz ponownie identyczny film u góry formularza; ponowienie sprawdzi jego zawartość i zachowa pierwotny opis oraz ustawienia. Pomyślnie opublikowany YouTube nie jest ponawiany. Zatrzymanie pojedynczej platformy nie anuluje pozostałych.
 
-Miniaturę można przygotować z obrazu JPG/PNG do 2 MB albo automatycznie z klatki w połowie filmu. Generowanie odbywa się lokalnie, bez zmieniania pliku wideo; wynik można też pobrać. Jedną miniaturę przypisujesz do wybranych platform. Potwierdzono formularze przesyłania okładek TikToka i Instagrama. W sprawdzonym kreatorze Facebook Reels nie było pola własnej okładki, więc Facebook zachowuje okładkę domyślną. [Własne miniatury Shorts są wdrażane zależnie od konta YouTube](https://blog.youtube/news-and-events/youtube-studio-custom-thumbnail-updates/). Jeśli pole nie jest dostępne lub brak potwierdzenia miniatury, ta platforma zatrzyma się przed publikacją; można ponowić z domyślną miniaturą.
+Miniaturę można przygotować z obrazu JPG/PNG do 2 MB albo automatycznie z klatki w połowie filmu. Generowanie odbywa się lokalnie, bez zmieniania pliku wideo; wynik można też pobrać. Jedną miniaturę przypisujesz do wybranych platform. Potwierdzono formularze przesyłania okładek TikToka i Instagrama. Facebook Reels otwiera edytor miniatury w ostatnim kroku ustawień rolki, przesyła obraz JPG/PNG, zapisuje go i sprawdza ten sam obraz w podglądzie przed publikacją. Facebook jest domyślnie zaznaczony na liście odbiorców wybranej miniatury. [Własne miniatury Shorts są wdrażane zależnie od konta YouTube](https://blog.youtube/news-and-events/youtube-studio-custom-thumbnail-updates/). Jeśli pole nie jest dostępne lub brak potwierdzenia miniatury, ta platforma zatrzyma się przed publikacją; można ponowić z domyślną miniaturą.
 
 Aktualizacja 0.1.4 poprawiła wybór pola rolki Facebooka (oddzielonego od pól zwykłego posta), ignorowanie ukrytych formularzy, otwieranie kreatora Instagrama i obsługę odrzuconych przesyłań TikToka. Testy obejmują konkurujące ponowienia, nieaktualne próby i zachowanie pliku po błędzie. Przejście formularzy i okładek sprawdzono bez publikacji publicznych; nie jest to potwierdzenie całej kolejki na każdej konfiguracji kont.
 

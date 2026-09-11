@@ -1,7 +1,7 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.9';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.10';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
@@ -41,18 +41,61 @@
   if(!job.thumbnail?.platforms.includes(platform))return {};
   step('Ustawianie miniatury '+platform+'.');
   if(platform==='tiktok')click(await wait(()=>exactText(/^(Edytuj okładkę|Edit cover)$/),'edycja okładki TikToka'));
-  if(platform==='facebook'){
-   const edit=control(/^(Edytuj miniaturę|Edytuj okładkę|Zmień miniaturę|Edit thumbnail|Edit cover)$/)||exactText(/^(Miniatura|Thumbnail)$/);
-   if(edit)click(edit);
-  }
   const input=await wait(()=>{const hits=[...document.querySelectorAll('input[type="file"]')].filter(e=>/image\/(jpeg|png|\*)/i.test(e.getAttribute('accept')||'')&&!/video/i.test(e.getAttribute('accept')||''));return hits.length===1?hits[0]:null;},'pole własnej miniatury. Jeśli konto go nie udostępnia, użyj domyślnej okładki platformy',15000);
   const parts=[];for(let offset=0;offset<job.thumbnail.size;){const r=await send(job,platform,'CHUNK',{asset:'thumbnail',offset});const bytes=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));if(!bytes.length)throw new Error('Niepełna miniatura.');parts.push(bytes);offset+=bytes.length;}
   const beforeImages=new Set(all('img,[style]').map(e=>e.getAttribute('src')||e.getAttribute('style')).filter(Boolean));
   const f=new File(parts,job.thumbnail.mime==='image/png'?'miniatura.png':'miniatura.jpg',{type:job.thumbnail.mime}),dt=new DataTransfer();dt.items.add(f);input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));
   await wait(()=>all('img,[style]').some(e=>{const value=e.getAttribute('src')||e.getAttribute('style')||'';return /blob:|data:image/.test(value)&&!beforeImages.has(value);}), 'podgląd wybranej miniatury',30000);
   if(platform==='tiktok'){await press(/^(Zapisz|Save)$/);await wait(()=>!control(/^(Upload cover image|Uploaded cover image)$/)&&!!editable('combobox'),'zapis okładki TikToka');}
-  else if(platform==='facebook'){const save=control(/^(Zapisz|Save|Gotowe|Done)$/);if(save)click(save);}
   return {thumbnailConfirmed:true};
+ }
+
+ function facebookDialog(title){
+  const hits=all('[role="dialog"]').filter(e=>all('h1,h2,[role="heading"]',e).some(h=>title.test(norm(h.textContent))));
+  return hits.length===1?hits[0]:null;
+ }
+ const facebookSettings=()=>facebookDialog(/^(Ustawienia rolki|Reel settings)$/i);
+ const facebookCoverEditor=()=>facebookDialog(/^(Edytuj miniaturę|Edit thumbnail)$/i);
+ function facebookCoverInput(){
+  const editor=facebookCoverEditor();if(!editor)return null;
+  const hits=[...editor.querySelectorAll('input[type="file"]')].filter(e=>e.isConnected&&enabled(e)&&!e.closest('[aria-hidden="true"],[inert]')&&/(?:image\/(?:jpeg|png|\*)|\.(?:png|jpe?g))/i.test(e.getAttribute('accept')||'')&&!/video/i.test(e.getAttribute('accept')||''));
+  return hits.length===1?hits[0]:null;
+ }
+ function facebookUploadedCover(){
+  const editor=facebookCoverEditor();if(!editor)return null;
+  const hits=all('img',editor).filter(e=>/^(Podgląd obrazu przesłanej miniatury niestandardowej|Preview of uploaded custom thumbnail(?: image)?|Uploaded custom thumbnail preview)$/i.test(e.alt||'')&&e.complete&&e.naturalWidth>0&&e.getAttribute('src'));
+  return hits.length===1?hits[0]:null;
+ }
+ function assertFacebookCover(src){
+  const settings=facebookSettings();
+  if(!settings||!all('img',settings).some(e=>e.getAttribute('src')===src&&e.complete&&e.naturalWidth>0))throw new Error('Nie potwierdzono zapisanej miniatury Facebooka. Publikacja zatrzymana.');
+ }
+ async function facebookCover(job){
+  if(!job.thumbnail?.platforms.includes('facebook'))return {};
+  const settings=await wait(facebookSettings,'ustawienia rolki dla miniatury');
+  await press(/^(Edytuj|Edit|Edytuj miniaturę|Edit thumbnail)$/,'button',settings);
+  await wait(facebookCoverEditor,'edytor miniatury Facebooka');
+  await wait(facebookCoverInput,'pole własnej miniatury Facebooka',15000);
+  const parts=[];for(let offset=0;offset<job.thumbnail.size;){
+   const r=await send(job,'facebook','CHUNK',{asset:'thumbnail',offset}),bytes=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));
+   if(!bytes.length||bytes.length!==r.length||offset+bytes.length>job.thumbnail.size)throw new Error('Niepełna miniatura Facebooka.');
+   parts.push(bytes);offset+=bytes.length;
+  }
+  const file=new File(parts,job.thumbnail.mime==='image/png'?'miniatura.png':'miniatura.jpg',{type:job.thumbnail.mime});
+  if(!file.size||file.size!==job.thumbnail.size)throw new Error('Niepełna miniatura Facebooka.');
+  // React can replace the input while the extension transfers the image.
+  const input=await wait(facebookCoverInput,'aktywne pole miniatury Facebooka',15000);
+  if(cancelled)throw new Error('Wysyłka zatrzymana.');
+  globalThis.UplowWorkFacebookPage.assertActor(job.facebookPage);
+  const previous=facebookUploadedCover()?.getAttribute('src'),dt=new DataTransfer();dt.items.add(file);input.files=dt.files;
+  if(input.files?.length!==1||input.files[0].size!==file.size)throw new Error('Facebook nie przyjął pliku miniatury.');
+  input.dispatchEvent(new Event('change',{bubbles:true}));
+  const src=await wait(()=>{const e=facebookUploadedCover();return e&&e.getAttribute('src')!==previous&&e.getAttribute('src');},'podgląd przesłanej miniatury Facebooka',60000);
+  const save=await wait(()=>{const editor=facebookCoverEditor(),e=editor&&control(/^(Zapisz|Save)$/,'button',editor);return enabled(e)&&e;},'zapis miniatury Facebooka');
+  if(facebookUploadedCover()?.getAttribute('src')!==src)throw new Error('Miniatura Facebooka zmieniła się przed zapisaniem.');
+  click(save);
+  await wait(()=>{const settings=facebookSettings();return settings&&!facebookCoverEditor()&&all('img',settings).some(e=>e.getAttribute('src')===src&&e.complete&&e.naturalWidth>0);},'zapisana okładka w ustawieniach rolki Facebooka',60000);
+  return {thumbnailConfirmed:true,src};
  }
 
  function read(e){return norm(e.isContentEditable?e.innerText:e.value);}
@@ -217,8 +260,10 @@
   step('Otwieranie kreatora Facebook Reels.');
   if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Utwórz rolkę|Create reel)$/)){await press(/^(Menu Facebooka|Facebook menu)$/);const menu=await wait(()=>all('[role="dialog"]').find(e=>control(/^(Rolka|Reel)$/,'button',e)),'menu tworzenia rolki strony');await press(/^(Rolka|Reel)$/,'button',menu);}
   await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Utwórz rolkę|Create reel)$/),'kreator rolki Facebooka');globalThis.UplowWorkFacebookPage.assertActor(job.facebookPage);await attach(job,'facebook');
-  await press(/^(Dalej|Next)$/);await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Edytuj rolkę|Edit reel)$/),'edycja rolki');const thumbnail=await cover(job,'facebook');await press(/^(Dalej|Next)$/);
-  await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/),'ustawienia rolki');const caption=await wait(()=>editable(),'opis rolki Facebooka');fill(caption,job.caption);
+  await press(/^(Dalej|Next)$/);await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Edytuj rolkę|Edit reel)$/),'edycja rolki');await press(/^(Dalej|Next)$/);
+  await wait(()=>globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/),'ustawienia rolki');
+  const {src:thumbnailSrc,...thumbnail}=await facebookCover(job);
+  const caption=await wait(()=>editable(),'opis rolki Facebooka');fill(caption,job.caption);
   const expected=/^(Publiczne Każdy|Public Anyone)/;
   const finalAudience=await wait(()=>all('button,[role="button"]').find(e=>expected.test(label(e))),'publiczna widoczność rolki strony');
   let syntheticConfirmed=!job.synthetic;
@@ -228,6 +273,7 @@
   if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/))throw new Error('Zamknięto kreator rolki. Publikacja zatrzymana.');
   const resolvePublish=()=>{
    globalThis.UplowWorkFacebookPage.assertActor(job.facebookPage);
+   if(thumbnailSrc)assertFacebookCover(thumbnailSrc);
    if(!globalThis.UplowWorkDOM.facebookReelStage(/^(Ustawienia rolki|Reel settings)$/))throw new Error('Zamknięto kreator rolki. Publikacja zatrzymana.');
    const audience=all('button,[role="button"]').find(e=>expected.test(label(e))),description=editable();
    if(!audience||!description||!captionMatches(description,job.caption))throw new Error('Opis lub widoczność rolki Facebooka zmieniły się przed publikacją.');
