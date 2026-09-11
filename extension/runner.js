@@ -1,7 +1,7 @@
 // Isolated-world content script. Reads and operates the visible publishing UI;
 // it does not read cookies, passwords, internal APIs or page application stores.
 (()=>{
- if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.12';
+ if(globalThis.__wrzutkaInstalled)return;globalThis.__wrzutkaInstalled='0.1.13';
  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
  const visible=e=>e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden="true"],[inert]');
  const enabled=e=>e&&!e.disabled&&e.getAttribute('aria-disabled')!=='true';
@@ -17,9 +17,10 @@
  const checked=e=>e?.getAttribute('aria-checked')==='true'||e?.checked===true||e?.getAttribute('data-state')==='checked';
  const delay=ms=>new Promise(r=>setTimeout(r,ms));
  let cancelled=false,running=false,committed=false,currentStep='Uruchamianie formularza',currentJob=null,currentPlatform=null;
- function step(description){currentStep=description;if(currentJob&&!committed)send(currentJob,currentPlatform,'PROGRESS',{status:'uploading',message:description}).catch(()=>{});}
- async function wait(fn,description,timeout=60000){step(description);const start=Date.now();while(Date.now()-start<timeout){if(cancelled&&!committed)throw new Error('Wysyłka zatrzymana.');if(currentPlatform==='tiktok'&&!committed){const failure=text().match(/(?:Nie udało się przesłać|Przesyłanie nie powiodło się|Upload failed|Couldn.t upload)[^.\n]*/i);if(failure)throw new Error(failure[0]);}const value=fn();if(value)return value;if(all('iframe').some(e=>/captcha/i.test(e.getAttribute('title')||'')))throw new Error('Platforma wymaga weryfikacji w przeglądarce.');await delay(400);}throw new Error('Nie potwierdzono: '+description+'. Sprawdź kartę platformy.');}
- async function pause(ms,description){step(description);for(let elapsed=0;elapsed<ms;elapsed+=250){if(cancelled)throw new Error('Wysyłka zatrzymana.');await delay(Math.min(250,ms-elapsed));}}
+ let tiktokCheckRetries=0;const stepHistory=[];
+ function step(description){currentStep=description;if(stepHistory.at(-1)?.step!==description){stepHistory.push({step:description,at:Date.now()});if(stepHistory.length>20)stepHistory.shift();}if(currentJob&&!committed)send(currentJob,currentPlatform,'PROGRESS',{status:'uploading',message:description}).catch(()=>{});}
+ async function wait(fn,description,timeout=60000){step(description);const start=Date.now();while(Date.now()-start<timeout){if(cancelled&&!committed)throw new Error('Wysyłka zatrzymana.');if(currentPlatform==='tiktok'&&!committed)assertTikTokUpload();const value=fn();if(value)return value;if(all('iframe').some(e=>/captcha/i.test(e.getAttribute('title')||'')))throw new Error('Platforma wymaga weryfikacji w przeglądarce.');await delay(400);}throw new Error('Nie potwierdzono: '+description+'. Sprawdź kartę platformy.');}
+ async function pause(ms,description){step(description);for(let elapsed=0;elapsed<ms;elapsed+=250){if(cancelled)throw new Error('Wysyłka zatrzymana.');if(currentPlatform==='tiktok')assertTikTokUpload();await delay(Math.min(250,ms-elapsed));}}
  async function press(test,role='button',root=document,timeout=60000){await pause(1000,'Oczekiwanie na stabilny formularz');const e=await wait(()=>{const e=control(test,role,root);return enabled(e)?e:null;},String(test),timeout);click(e);await pause(1000,'Oczekiwanie po zmianie etapu');return e;}
  function fill(e,value){if(!visible(e))throw new Error('Pole tekstowe nie jest widoczne.');e.focus();if(e.isContentEditable){const selection=window.getSelection();const range=document.createRange();range.selectNodeContents(e);selection.removeAllRanges();selection.addRange(range);if(!document.execCommand('insertText',false,value)){e.textContent=value;e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:value}));}}else{const proto=e instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));}if(norm(e.isContentEditable?e.innerText:e.value)!==norm(value))throw new Error('Nie udało się zapisać tekstu.');}
  function field(pattern){const hits=all('textarea,input:not([type=file]),[contenteditable="true"]').filter(e=>matches(norm(e.getAttribute('aria-label')||e.getAttribute('placeholder')||''),pattern));return hits.length===1?hits[0]:null;}
@@ -179,6 +180,7 @@
   await pause(1500,'Oczekiwanie na zapis opisu i ustawień '+platform);
   currentStep='Końcowe sprawdzenie formularza '+platform;
   const ready=()=>{
+   if(platform==='tiktok'){assertTikTokUpload();if(tiktokCheckStates().some(e=>e.classList.contains('status-checking')||e.classList.contains('status-error')))throw new Error('Kontrola treści TikToka nie jest zakończona. Formularz nie jest gotowy.');}
    if(cancelled&&!committed)throw new Error('Wysyłka zatrzymana.');
    const button=typeof resolveButton==='function'?resolveButton():resolveButton;
    if(!button?.isConnected||!enabled(button)||!visible(button))throw new Error('Przycisk publikacji nie jest gotowy w aktualnym formularzu.');
@@ -193,9 +195,41 @@
   const done=new Error('Film i ustawienia przygotowane. Otwórz kartę platformy i kliknij końcowy przycisk samodzielnie.'+(platform==='tiktok'?' Jeśli termin minął, wybierz nowy termin planowania.':''));
   done.code='DRY_RUN_COMPLETE';throw done;
  }
+ function tiktokCheckStates(){return all('.status-wrapper .status-result[data-show="true"]');}
+ function tiktokUploadError(){
+  // The optional content check uses the same error wording as the uploader.
+  // Inspect visible UI messages, excluding the caption and preview text.
+  return all('[role="alert"],[role="status"],.info-status,[aria-label="Notifications"] span,[aria-label="Notifications"] div').find(e=>{
+   if(e.closest('.status-wrapper,[contenteditable="true"]')||e.children.length&& !e.matches('[role="alert"],[role="status"],.info-status'))return false;
+   return /^(?:Something went wrong|Coś poszło nie tak|Nie udało się przesłać|Przesyłanie nie powiodło się|Upload failed|Couldn.t upload)(?:[.\s!—-]|$)/i.test(norm(e.innerText));
+  });
+ }
+ function assertTikTokUpload(){
+  const message=tiktokUploadError();if(!message)return;
+  const error=new Error('TikTok: '+norm(message.innerText).slice(0,300));error.code='TIKTOK_UPLOAD_REJECTED';throw error;
+ }
+ async function tiktokContentChecks(){
+  for(;;){
+   const state=await wait(()=>{
+    const states=tiktokCheckStates();
+    if(states.some(e=>e.classList.contains('status-checking')))return null;
+    return {error:states.find(e=>e.classList.contains('status-error'))};
+   },'zakończenie kontroli treści TikToka',900000);
+   if(!state.error)return;
+   if(tiktokCheckRetries>=2){const error=new Error('TikTok nie zakończył kontroli treści po dwóch ponowieniach. Film pozostaje w karcie; nie wysyłaj go ponownie. '+norm(state.error.innerText).slice(0,200));error.code='TIKTOK_CONTENT_CHECK_FAILED';throw error;}
+   await pause(3000,'Oczekiwanie przed ponowieniem samej kontroli treści TikToka');
+   const currentError=tiktokCheckStates().find(e=>e.classList.contains('status-error'));if(!currentError)continue;
+   const retry=exactText(/^(Spróbuj ponownie|Try again|Retry)$/,currentError);
+   if(!retry){const error=new Error('Błąd kontroli treści TikToka; nie znaleziono przycisku ponowienia tej kontroli.');error.code='TIKTOK_CONTENT_CHECK_FAILED';throw error;}
+   tiktokCheckRetries++;click(retry);
+   await wait(()=>!tiktokCheckStates().some(e=>e.classList.contains('status-error')),'rozpoczęcie ponownej kontroli treści TikToka',30000);
+  }
+ }
+ function tiktokDiagnostic(){return {uploadMessage:norm(tiktokUploadError()?.innerText).slice(0,300),checks:tiktokCheckStates().map(e=>norm(e.innerText).slice(0,300)),checkRetries:tiktokCheckRetries};}
  async function tiktok(job){
   await wait(()=>control(/^(Wybierz filmy|Select videos)$/)||document.querySelector('input[type="file"]'),'zalogowanie do TikTok Studio');await attach(job,'tiktok');
-  await wait(()=>{const failure=all('[role=alert]').map(e=>norm(e.innerText)).find(t=>/nie udało|błąd|failed|couldn.t|error/i.test(t));if(failure)throw new Error('TikTok odrzucił przesyłanie: '+failure);if(/Something went wrong|Coś poszło nie tak/i.test(text())){const error=new Error('TikTok: Something went wrong — platforma nie przyjęła przesyłania.');error.code='TIKTOK_UPLOAD_REJECTED';throw error;}return /Przesłano|Uploaded/.test(text());},'zakończenie przesyłania TikToka',600000);
+  await wait(()=>all('.info-status.success').some(e=>/Przesłano|Uploaded/i.test(e.innerText)),'zakończenie przesyłania TikToka',600000);
+  await tiktokContentChecks();
   const thumbnail=await cover(job,'tiktok');
   const caption=await wait(()=>editable('combobox')||editable('textbox')||field(/^(Opis|Description|Caption)/),'opis TikToka',600000);fill(caption,job.caption);
   const hint=control(/^(Rozumiem|Got it)$/);if(hint)click(hint);
@@ -204,6 +238,7 @@
   const expected=job.privacy==='private'?/^(Tylko Ty|Only you)$/:/^(Wszyscy|Everyone)$/;
   await wait(()=>expected.test(label(privacy)),'ustawiona widoczność');
   const extra=await extraOptions(job,'tiktok');
+  await tiktokContentChecks();
   if(job.tiktokSchedule==='auto15'){
    let proof,finalCaption;
    for(let attempt=0;attempt<3;attempt++){
@@ -386,6 +421,6 @@
   if(m.type!=='RUN')return;
   if(running){reply({started:false});return;}running=true;reply({started:true,version:globalThis.__wrzutkaInstalled});
   cancelled=false;committed=false;const job=m.job,platform=m.platform;currentJob=job;currentPlatform=platform;const heartbeat=setInterval(()=>send(job,platform,'HEARTBEAT').then(r=>{cancelled=r.cancelled;}).catch(()=>{cancelled=true;}),10000);
-  (async()=>{try{const handler={tiktok,youtube,facebook,instagram}[platform];if(!handler)throw new Error('Nieznana platforma.');const result=await handler(job);await send(job,platform,'FINISH',result);}catch(e){if(e.code==='FACEBOOK_RELOADING')return;await send(job,platform,'FINISH',{status:e.code==='DRY_RUN_COMPLETE'?'draft':committed?'unknown':'blocked',message:e.code==='DRY_RUN_COMPLETE'?e.message:currentStep+': '+e.message,diagnostic:{version:globalThis.__wrzutkaInstalled,step:currentStep,code:e.code||'FORM_ERROR',fileInputs:[...document.querySelectorAll('input[type=file]')].map(e=>e.getAttribute('accept')||''),instagramCreateFound:platform==='instagram'?!!globalThis.UplowWorkDOM.instagramCreate():undefined}}).catch(()=>{});}finally{clearInterval(heartbeat);}})();
+  (async()=>{try{const handler={tiktok,youtube,facebook,instagram}[platform];if(!handler)throw new Error('Nieznana platforma.');const result=await handler(job);await send(job,platform,'FINISH',result);}catch(e){if(e.code==='FACEBOOK_RELOADING')return;await send(job,platform,'FINISH',{status:e.code==='DRY_RUN_COMPLETE'?'draft':committed?'unknown':'blocked',message:e.code==='DRY_RUN_COMPLETE'?e.message:currentStep+': '+e.message,diagnostic:{version:globalThis.__wrzutkaInstalled,step:currentStep,code:e.code||'FORM_ERROR',history:stepHistory,...(platform==='tiktok'?{tiktok:tiktokDiagnostic()}:{}),fileInputs:[...document.querySelectorAll('input[type=file]')].map(e=>e.getAttribute('accept')||''),instagramCreateFound:platform==='instagram'?!!globalThis.UplowWorkDOM.instagramCreate():undefined}}).catch(()=>{});}finally{clearInterval(heartbeat);}})();
  });
 })();

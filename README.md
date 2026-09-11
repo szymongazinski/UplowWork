@@ -2,11 +2,11 @@
 
 Jeden film i opis na wybrane **TikTok, Facebook Reels, Instagram Reels i YouTube Shorts**. Lokalny panel jako rozszerzenie Chrome lub Edge, bez abonamentu i bez dodatkowego serwera.
 
-**Wersja eksperymentalna 0.1.12.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
+**Wersja eksperymentalna 0.1.13.** Formularze platform były sprawdzane osobno. Pełna kolejka przez zainstalowane rozszerzenie oraz wszystkie kombinacje dodatkowych opcji wymagają dalszych testów. Zmiany interfejsów platform mogą wymagać aktualizacji aplikacji.
 
 ## Instalacja bez programowania
 
-1. Pobierz **UplowWork-v0.1.12.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
+1. Pobierz **UplowWork-v0.1.13.zip** z [najnowszego wydania](https://github.com/szymongazinski/UplowWork/releases/latest) i rozpakuj w stałym miejscu na komputerze.
 2. W Chrome otwórz `chrome://extensions`, a w Edge `edge://extensions`.
 3. Włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż folder **UplowWork**, który zawiera `manifest.json`.
 4. Panel otworzy się po instalacji. Kliknij **Połącz wszystkie** i zaloguj się na platformy w tej samej przeglądarce. Przypnij ikonę rozszerzenia, żeby łatwo wracać do panelu.
@@ -48,7 +48,7 @@ Przycisk **Przygotuj filmy — zatwierdzę sam** uruchamia ten sam kod obsługi 
 
 Instagram rozpoznaje angielskie pole „Add a caption...” i „Advanced Settings”. W kroku kadrowania automatycznie wybiera **Oryginał** i sprawdza proporcje oraz brak przycięcia obrazu, również na końcowym ekranie rolki. Pionowy film nie pozostaje w domyślnym kwadratowym kadrze.
 
-Wersja 0.1.12 przygotowuje formularze i zawsze zatrzymuje się przed końcowym przyciskiem **Share / Publish / Schedule**. Użytkownik zatwierdza każdą platformę ręcznie w jej karcie. Dotyczy to również ponowień starszych wysyłek; kolejka odrzuca automatyczne zatwierdzenie publikacji. Dodano pauzy: 3 sekundy po przekazaniu filmu, po 1 sekundzie przed i po przejściu etapu oraz 1,5 sekundy przed końcowym sprawdzeniem. Kod nadal czeka na rzeczywistą gotowość elementów formularza. Pauzy nie gwarantują usunięcia błędów platform.
+Wersja 0.1.13 przygotowuje formularze i zawsze zatrzymuje się przed końcowym przyciskiem **Share / Publish / Schedule**. Użytkownik zatwierdza każdą platformę ręcznie w jej karcie. Dotyczy to również ponowień starszych wysyłek; kolejka odrzuca automatyczne zatwierdzenie publikacji. Dodano pauzy: 3 sekundy po przekazaniu filmu, po 1 sekundzie przed i po przejściu etapu oraz 1,5 sekundy przed końcowym sprawdzeniem. Kod nadal czeka na rzeczywistą gotowość elementów formularza. Pauzy nie gwarantują usunięcia błędów platform.
 
 Przycisk **Przygotuj filmy — zatwierdzę sam** zastępuje automatyczne publikowanie. Status **Czeka na Twoje zatwierdzenie** oznacza przygotowany formularz, a nie opublikowany film. Jeśli ręcznie zatwierdzisz TikToka dopiero później, może być konieczne przesunięcie terminu planowania. Aplikacja nie potwierdza wyniku ręcznego kliknięcia; przed ponownym przygotowaniem sprawdź platformę, aby nie utworzyć duplikatu.
 
@@ -108,4 +108,6 @@ Folder wynikowy **UplowWork** można załadować do przeglądarki. `npm run dev`
 
 Kod panelu znajduje się w `extension/main.jsx`, kolejki w `extension/background.js`, obsługi formularzy w `extension/runner.js`, a walidacji w `extension/policy.js` i `extension/options.js`. Testy sprawdzają m.in. zakres wspólnych opcji, prywatność, blokowanie duplikatów oraz transakcje IndexedDB.
 
-Wersja 0.1.12 naprawia wybór pola uploadu YouTube Studio bez atrybutu accept. Okładka TikToka jest zapisywana dopiero po zdekodowaniu całego obrazu; aplikacja czeka następnie na załadowanie nowej okładki w głównym formularzu. Test rzeczywistego filmu i własnej miniatury przez formularz TikToka dotarł do aktywnego przycisku Zaplanuj bez jego kliknięcia. Nie odtworzono zgłaszanego błędu Something went wrong w zainstalowanym rozszerzeniu Chrome.
+Wersja 0.1.12 naprawiła wybór pola uploadu YouTube Studio bez atrybutu accept. Okładka TikToka jest zapisywana dopiero po zdekodowaniu całego obrazu; aplikacja czeka następnie na załadowanie nowej okładki w głównym formularzu. Test rzeczywistego filmu i własnej miniatury przez formularz TikToka dotarł do aktywnego przycisku Zaplanuj bez jego kliknięcia. Nie odtworzono zgłaszanego błędu Something went wrong w zainstalowanym rozszerzeniu Chrome.
+
+Wersja 0.1.13 rozróżnia błędy przesyłania od błędów kontroli treści TikToka. Czeka na trwającą kontrolę i najwyżej dwa razy używa jej własnego przycisku „Spróbuj ponownie”, bez ponownego przesyłania pliku. Błąd uploadu lub komunikat w powiadomieniach zatrzymuje także późniejsze etapy formularza. Szczegóły zatrzymania zawierają historię etapów, stan kontroli i przycisk zapisu diagnostyki do lokalnego pliku JSON. Przepływ sprawdzono na symulowanych formularzach i selektorach rzeczywistego TikTok Studio; poprawka nie została zweryfikowana w zainstalowanym Chrome użytkownika.

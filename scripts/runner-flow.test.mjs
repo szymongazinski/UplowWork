@@ -16,7 +16,7 @@ test('all four final controls are left untouched regardless of legacy dryRun fla
  const source=runner.slice(runner.indexOf(' async function authorize('),runner.indexOf(' async function tiktok('));
  for(const platform of ['youtube','facebook','instagram','tiktok'])for(const dryRun of [false,true]){
   const messages=[],pauses=[];let clicks=0,reads=0;
-  const context={cancelled:false,committed:false,currentStep:'',enabled:()=>true,visible:()=>true,pause:async ms=>pauses.push(ms),send:async(job,p,type)=>messages.push(type),click:()=>clicks++};
+  const context={all:()=>[],cancelled:false,committed:false,currentStep:'',enabled:()=>true,visible:()=>true,pause:async ms=>pauses.push(ms),send:async(job,p,type)=>messages.push(type),click:()=>clicks++};
   runInNewContext(source+';this.prepare=authorize;',context);
   await assert.rejects(()=>context.prepare({dryRun},platform,{},()=>{reads++;return {isConnected:true};}),e=>e.code==='DRY_RUN_COMPLETE');
   assert.deepEqual(messages,['PROGRESS','CHECK']);assert.equal(clicks,0);assert.equal(reads,3);assert.deepEqual(pauses,[1500]);
@@ -28,7 +28,7 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  window.HTMLElement.prototype.getClientRects=function(){return !this.isConnected||this.hasAttribute('hidden')?[]:[{}];};
  window.HTMLElement.prototype.focus=function(){};window.HTMLElement.prototype.scrollIntoView=function(){};
  Object.defineProperty(window.HTMLElement.prototype,'isContentEditable',{get(){return this.getAttribute('contenteditable')==='true';}});
- let selected;document.createRange=()=>({selectNodeContents(e){selected=e;}});window.getSelection=()=>({removeAllRanges(){},addRange(){}});document.execCommand=(cmd,ui,value)=>{selected.replaceChildren(...String(value).split('\n').flatMap((line,i)=>i?[document.createElement('br'),document.createTextNode(line)]:[document.createTextNode(line)]));return true;};
+ let selected;document.createRange=()=>({selectNodeContents(e){selected=e;}});window.getSelection=()=>({removeAllRanges(){},addRange(){}});document.execCommand=(cmd,ui,value)=>{if(scenario.contentCheck==='slow')assert.equal(document.querySelector('.status-checking'),null,'caption must wait for check');selected.replaceChildren(...String(value).split('\n').flatMap((line,i)=>i?[document.createElement('br'),document.createTextNode(line)]:[document.createTextNode(line)]));return true;};
  const put=html=>{document.body.innerHTML=(platform==='facebook'&&!scenario.personalActor?'<nav aria-label="Facebook"><a id="actor" href="/'+(scenario.wrongPage?'999999999999999':'123456789012345')+'/ad_center/">Centrum reklam</a></nav>':'')+html;};const by=id=>document.getElementById(id);
  let publishClicks=0,detachedPublishClicks=0,publishReplacements=0,composerReplacements=0,clockJumps=0,scheduleActivations=0,changes=0,detachedChanges=0,createClicks=0,originalClicks=0,pointerDown=false,receive,finish;const messages=[],deliveredFiles=[],scheduledTimes=[];
  const finished=new Promise(resolve=>{finish=resolve;});const bytes=Buffer.from('verified video bytes'),coverBytes=Buffer.from('distinct thumbnail bytes');let coverChanges=0,coverSaves=0;const deliveredCovers=[];
@@ -40,6 +40,7 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  const wireFile=next=>{const input=by('file');input.addEventListener('input',()=>{changes++;});input.addEventListener('change',()=>{if(!input.isConnected){detachedChanges++;return;}changes++;deliveredFiles.push(...input.files);next();});};
  const wirePublish=()=>{const button=by('publish');button.addEventListener('click',()=>{if(!button.isConnected){detachedPublishClicks++;return;}publishClicks++;put(platform==='facebook'?'Your reel is processing':platform==='tiktok'?'<div role="status">Your video has been scheduled</div>':'Your reel has been shared');});};
  const mutateFinalForm=boundary=>{
+  if(scenario.errorOn===boundary){const alert=document.createElement('div');alert.setAttribute('role','alert');alert.textContent='Something went wrong';document.body.append(alert);}
   if(scenario.changeActorOn===boundary)by('actor').setAttribute('href','/999999999999999/ad_center/');
   if(scenario.changeCoverOn===boundary)by('saved-cover').setAttribute('src','blob:replaced-cover');
   if(scenario.expireScheduleOn===boundary&&!clockJumps){
@@ -82,10 +83,17 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
    by('done').addEventListener('click',()=>{assert.equal(by('public').getAttribute('aria-checked'),'true');modal.remove();by('audience').textContent='Publiczne Każdy na Facebooku i poza nim';});
   });wirePublish();
  };
- let tiktokCoverSaved=false;
+ let tiktokCoverSaved=false,checkRetries=0;
  const tiktokUploaded=()=>{
   if(!scenario.acceptUpload){put('<div role="alert">Something went wrong</div>');return;}
-  put('<p>Uploaded</p><div id="caption" role="combobox" contenteditable="true"></div><button id="privacy" role="combobox">Everyone</button><button id="publish">Post</button>');
+  put('<p class="info-status success">Uploaded</p><div id="caption" role="combobox" contenteditable="true"></div><button id="privacy" role="combobox">Everyone</button><button id="publish">Post</button>');
+  if(scenario.contentCheck){
+   const wrapper=document.createElement('div');wrapper.className='status-wrapper';document.body.append(wrapper);
+   const setStatus=state=>{wrapper.innerHTML='<div class="status-result status-'+state+'" data-show="true">'+(state==='error'?'Something went wrong. <span id="retry-check">Try again</span>':state==='checking'?'Checking':'No issues found')+'</div>';};
+   const fail=()=>{setStatus('error');by('retry-check').addEventListener('click',()=>{checkRetries++;setStatus('checking');setTimeout(()=>scenario.contentCheck==='permanent'?fail():setStatus('success'),30);});};
+   if(scenario.contentCheck==='slow'){setStatus('checking');setTimeout(()=>setStatus('success'),100);}else fail();
+  }
+  if(scenario.lateUploadError){by('privacy').addEventListener('click',()=>{const alert=document.createElement('div');alert.setAttribute('role','alert');alert.textContent='Something went wrong';document.body.append(alert);});}
   if(scenario.thumbnail){
    const row=document.createElement('div');row.className='cover-container';row.innerHTML='<img id="tt-cover" class="cover-image" src="'+(tiktokCoverSaved?'blob:custom-cover':'blob:default-cover')+'"><button id="tt-edit">Edit cover</button>';document.body.append(row);by('tt-cover').complete=true;by('tt-cover').naturalWidth=720;
    by('tt-edit').addEventListener('click',()=>{
@@ -187,7 +195,7 @@ async function flow(platform,dryRun=true,corrupt=false,scenario={}){
  runInNewContext(helper,context);runInNewContext(pageModule,context);runInNewContext(scheduleModule,context);runInNewContext(scheduleUI,context);runInNewContext(runner,context);
  receive({type:'RUN',job,platform},{id:'fixture'},()=>{});
  const result=await Promise.race([finished,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Runner did not finish fixture')),5000);timer.unref();})]);
- return {result,messages,publishClicks,detachedPublishClicks,publishReplacements,composerReplacements,clockJumps,scheduleActivations,scheduledTimes,changes,detachedChanges,createClicks,originalClicks,pointerDown,deliveredFiles,coverChanges,coverSaves,deliveredCovers};
+ return {result,messages,checkRetries,publishClicks,detachedPublishClicks,publishReplacements,composerReplacements,clockJumps,scheduleActivations,scheduledTimes,changes,detachedChanges,createClicks,originalClicks,pointerDown,deliveredFiles,coverChanges,coverSaves,deliveredCovers};
 }
 
 test('Facebook uploads thumbnail bytes in final settings, saves and verifies the cover, including a replaced input',async()=>{
@@ -386,4 +394,30 @@ test('TikTok never saves an undecoded custom cover or accepts the unchanged defa
  for(const key of ['rejectCover','loseCoverOnSave']){
   const r=await flow('tiktok',false,false,{acceptUpload:true,thumbnail:true,[key]:true});assert.equal(r.result.status,'blocked',r.result.message);assert.equal(r.publishClicks,0);assert.ok(!r.messages.some(m=>m.type==='CHECK'));if(key==='rejectCover')assert.equal(r.coverSaves,0);
  }
+});
+
+
+test('TikTok retries only the failed content check, without uploading another video',async()=>{
+ const r=await flow('tiktok',true,false,{acceptUpload:true,contentCheck:'transient',schedule:true});
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.checkRetries,1);assert.equal(r.changes,1);assert.equal(r.publishClicks,0);
+});
+test('TikTok stops after two failed content check retries and preserves the cause',async()=>{
+ const r=await flow('tiktok',true,false,{acceptUpload:true,contentCheck:'permanent'});
+ assert.equal(r.result.status,'blocked');assert.equal(r.result.diagnostic.code,'TIKTOK_CONTENT_CHECK_FAILED');assert.equal(r.checkRetries,2);assert.equal(r.changes,1);assert.equal(r.publishClicks,0);
+ assert.match(r.result.diagnostic.tiktok.checks[0],/Something went wrong/);
+});
+test('TikTok waits for a running content check before editing the caption',async()=>{
+ const r=await flow('tiktok',true,false,{acceptUpload:true,contentCheck:'slow'});
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.checkRetries,0);assert.equal(r.publishClicks,0);
+});
+test('TikTok catches late upload errors during form editing and final handoff',async()=>{
+ for(const scenario of [{lateUploadError:true},{errorOn:'ready'},{errorOn:'check'}]){
+  const r=await flow('tiktok',true,false,{acceptUpload:true,schedule:true,...scenario});
+  assert.equal(r.result.status,'blocked');assert.equal(r.result.diagnostic.code,'TIKTOK_UPLOAD_REJECTED');assert.equal(r.publishClicks,0);assert.match(r.result.diagnostic.tiktok.uploadMessage,/Something went wrong/);
+ }
+});
+
+test('TikTok does not mistake an error phrase in the caption for a platform error',async()=>{
+ const r=await flow('tiktok',true,false,{acceptUpload:true,caption:'Something went wrong',schedule:true});
+ assert.equal(r.result.status,'draft',r.result.message);assert.equal(r.publishClicks,0);
 });
